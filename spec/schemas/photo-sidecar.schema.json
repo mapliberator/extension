@@ -1,0 +1,133 @@
+{
+	"$id": "https://mapliberator.com/spec/1.0-draft/schemas/photo-sidecar.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"type": "object",
+	"properties": {
+		"id": {
+			"type": "string",
+			"pattern": "^photo\\/[0-9]{6,}$",
+			"description": "Archive-local ID: \"photo/<sequence>\""
+		},
+		"file": {
+			"type": "string",
+			"minLength": 1,
+			"maxLength": 255,
+			"pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+			"description": "Name of a file in the same directory as this sidecar"
+		},
+		"contentType": {
+			"type": "string"
+		},
+		"rendition": {
+			"type": "string",
+			"enum": [
+				"original",
+				"largest-available"
+			]
+		},
+		"attachedTo": {
+			"anyOf": [
+				{
+					"type": "string",
+					"pattern": "^(track|route|waypoint|area|photo|collection)\\/[0-9]{6,}$",
+					"description": "Archive-local ID: \"<type>/<sequence>\""
+				},
+				{
+					"type": "null"
+				}
+			]
+		},
+		"name": {
+			"type": [
+				"string",
+				"null"
+			]
+		},
+		"caption": {
+			"type": [
+				"string",
+				"null"
+			]
+		},
+		"takenAt": {
+			"anyOf": [
+				{
+					"type": "string",
+					"pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$",
+					"description": "RFC 3339 timestamp, UTC"
+				},
+				{
+					"type": "null"
+				}
+			]
+		},
+		"uploadedAt": {
+			"anyOf": [
+				{
+					"type": "string",
+					"pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$",
+					"description": "RFC 3339 timestamp, UTC"
+				},
+				{
+					"type": "null"
+				}
+			]
+		},
+		"coordinate": {
+			"anyOf": [
+				{
+					"minItems": 2,
+					"maxItems": 3,
+					"type": "array",
+					"items": {
+						"type": "number"
+					},
+					"description": "[longitude, latitude, elevationMeters?] in WGS84 (RFC 7946 order)"
+				},
+				{
+					"type": "null"
+				}
+			]
+		},
+		"source": {
+			"type": "object",
+			"properties": {
+				"platform": {
+					"type": "string",
+					"minLength": 1
+				},
+				"id": {
+					"type": "string"
+				},
+				"url": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"raw": {
+					"description": "Scrubbed source representation; only when requested"
+				}
+			},
+			"required": [
+				"platform",
+				"id"
+			],
+			"additionalProperties": {}
+		},
+		"sha256": {
+			"description": "Reserved for a future 1.x; not written by 1.0",
+			"type": "string"
+		}
+	},
+	"required": [
+		"id",
+		"file",
+		"contentType",
+		"rendition",
+		"attachedTo",
+		"source"
+	],
+	"additionalProperties": {},
+	"description": "Sidecar adjacent to a photo"
+}

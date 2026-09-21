@@ -1,0 +1,226 @@
+{
+	"$id": "https://mapliberator.com/spec/1.0-draft/schemas/collections.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"type": "object",
+	"properties": {
+		"collections": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string",
+						"pattern": "^collection\\/[0-9]{6,}$",
+						"description": "Archive-local ID: \"collection/<sequence>\""
+					},
+					"name": {
+						"type": "string"
+					},
+					"description": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"parent": {
+						"anyOf": [
+							{
+								"type": "string",
+								"pattern": "^collection\\/[0-9]{6,}$",
+								"description": "Archive-local ID: \"collection/<sequence>\""
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"createdAt": {
+						"anyOf": [
+							{
+								"type": "string",
+								"pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$",
+								"description": "RFC 3339 timestamp, UTC"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"updatedAt": {
+						"anyOf": [
+							{
+								"type": "string",
+								"pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$",
+								"description": "RFC 3339 timestamp, UTC"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"source": {
+						"description": "null for collections synthesized by the exporter (e.g. \"Completed trails\")",
+						"anyOf": [
+							{
+								"type": "object",
+								"properties": {
+									"platform": {
+										"type": "string"
+									},
+									"id": {
+										"type": "string"
+									},
+									"url": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"raw": {}
+								},
+								"required": [
+									"id"
+								],
+								"additionalProperties": {}
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"members": {
+						"type": "array",
+						"items": {
+							"anyOf": [
+								{
+									"type": "object",
+									"properties": {
+										"ref": {
+											"type": "string",
+											"pattern": "^(track|route|waypoint|area|photo|collection)\\/[0-9]{6,}$",
+											"description": "Archive-local ID: \"<type>/<sequence>\""
+										}
+									},
+									"required": [
+										"ref"
+									],
+									"additionalProperties": {}
+								},
+								{
+									"type": "object",
+									"properties": {
+										"reference": {
+											"type": "object",
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"source": {
+													"type": "object",
+													"properties": {
+														"platform": {
+															"type": "string",
+															"minLength": 1
+														},
+														"id": {
+															"type": "string"
+														},
+														"url": {
+															"type": [
+																"string",
+																"null"
+															]
+														}
+													},
+													"required": [
+														"platform",
+														"id"
+													],
+													"additionalProperties": {}
+												},
+												"coordinate": {
+													"anyOf": [
+														{
+															"minItems": 2,
+															"maxItems": 3,
+															"type": "array",
+															"items": {
+																"type": "number"
+															},
+															"description": "[longitude, latitude, elevationMeters?] in WGS84 (RFC 7946 order)"
+														},
+														{
+															"type": "null"
+														}
+													]
+												}
+											},
+											"required": [
+												"name",
+												"source"
+											],
+											"additionalProperties": {},
+											"description": "Pointer to content the user saved but did not author. Never carries geometry."
+										},
+										"annotations": {
+											"type": "object",
+											"properties": {
+												"completedAt": {
+													"anyOf": [
+														{
+															"type": "string",
+															"pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z)?$",
+															"description": "RFC 3339 full-date or UTC timestamp"
+														},
+														{
+															"type": "null"
+														}
+													]
+												},
+												"rating": {
+													"type": [
+														"number",
+														"null"
+													]
+												},
+												"review": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"notes": {
+													"type": [
+														"string",
+														"null"
+													]
+												}
+											},
+											"additionalProperties": {},
+											"description": "The user's own annotations on third-party content"
+										}
+									},
+									"required": [
+										"reference"
+									],
+									"additionalProperties": {}
+								}
+							]
+						}
+					}
+				},
+				"required": [
+					"id",
+					"name",
+					"members"
+				],
+				"additionalProperties": {}
+			}
+		}
+	},
+	"required": [
+		"collections"
+	],
+	"additionalProperties": {},
+	"description": "collections.json"
+}

@@ -1,0 +1,87 @@
+{
+	"count": 5,
+	"next": null,
+	"previous": null,
+	"results": [
+		{
+			"id": "gw-5001",
+			"title": "Camp & water cache",
+			"notes": "Flat spot, 3 tents max.",
+			"time_created": "2024-06-03T07:40:02-07:00",
+			"updated_date": "2024-06-06T08:55:23-07:00",
+			"public": false,
+			"user_id": "gu-1001",
+			"user_email": "me@example.test",
+			"tags": ["camp"],
+			"icon": "campsite",
+			"geometry": {
+				"type": "Point",
+				"coordinates": [-118.291507, 36.577214, 3652.4]
+			}
+		},
+		{
+			"id": "gw-5002",
+			"title": "Trailhead parking",
+			"notes": "",
+			"time_created": "2024-06-03T07:40:02-07:00",
+			"updated_date": "2024-06-06T08:55:23-07:00",
+			"public": false,
+			"user_id": "gu-1001",
+			"user_email": "me@example.test",
+			"tags": [],
+			"icon": "car",
+			"geometry": {
+				"type": "Point",
+				"coordinates": [-118.239866, 36.586953, 2548.1]
+			}
+		},
+		{
+			"id": "gw-5003",
+			"title": "Café du Lac ☕",
+			"notes": "Open Thu–Sun.",
+			"time_created": "2024-06-11T17:08:55+02:00",
+			"updated_date": "2024-06-14T18:24:16+02:00",
+			"public": false,
+			"user_id": "gu-1001",
+			"user_email": "me@example.test",
+			"tags": [],
+			"icon": "food",
+			"geometry": {
+				"type": "Point",
+				"coordinates": [-118.270412, 36.590633, 2710]
+			}
+		},
+		{
+			"id": "gw-5004",
+			"title": "Trailhead parking",
+			"notes": "Overflow lot.",
+			"time_created": "2024-06-12T08:37:48-07:00",
+			"updated_date": "2024-06-15T09:53:09-07:00",
+			"public": false,
+			"user_id": "gu-1001",
+			"user_email": "me@example.test",
+			"tags": [],
+			"icon": "car",
+			"geometry": {
+				"type": "Point",
+				"coordinates": [-118.241102, 36.585471, 2531.7]
+			}
+		},
+		{
+			"id": "gw-5005",
+			"title": "Summit",
+			"notes": "",
+			"time_created": "2024-06-17T07:40:02-07:00",
+			"updated_date": "2024-06-20T08:55:23-07:00",
+			"public": true,
+			"user_id": "gu-1001",
+			"user_email": "me@example.test",
+			"tags": [],
+			"icon": "peak",
+			"geometry": {
+				"type": "Point",
+				"coordinates": [-118.292301, 36.578402, 4418.9]
+			}
+		}
+	]
+}

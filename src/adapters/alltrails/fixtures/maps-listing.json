@@ -1,0 +1,124 @@
+{
+	"items": [
+		{
+			"id": 820001,
+			"name": "🏔️🥾",
+			"notes": "Permit needed.",
+			"description": "Two-night loop with a layover day.",
+			"createdAt": 1717425982,
+			"updatedAt": 1717600016,
+			"activityType": {
+				"uid": "backpacking"
+			},
+			"private": false,
+			"user": {
+				"id": 7001,
+				"name": "Test Hiker"
+			},
+			"summaryStats": {
+				"distanceTotal": 4122.4,
+				"elevationGain": 104.6
+			},
+			"location": {
+				"latitude": 36.74418,
+				"longitude": -118.40127
+			},
+			"waypoints": [
+				{
+					"id": 830001,
+					"name": "Night 1 camp",
+					"description": "By the outlet.",
+					"location": {
+						"latitude": 36.74951,
+						"longitude": -118.39582
+					},
+					"createdAt": 1717426042
+				},
+				{
+					"id": 830002,
+					"name": "Water <last reliable>",
+					"description": "",
+					"location": {
+						"latitude": 36.75307,
+						"longitude": -118.39011
+					},
+					"createdAt": 1717426102
+				}
+			]
+		},
+		{
+			"id": 820002,
+			"name": "Very long name that keeps going and going to exercise the filename sanitizer limits across ridges, valleys, rivers, meadows, passes and several more words than anyone would type",
+			"notes": "",
+			"description": "",
+			"createdAt": 1718201469,
+			"updatedAt": 1718375503,
+			"activityType": {
+				"uid": "hiking"
+			},
+			"private": true,
+			"user": {
+				"id": 7001,
+				"name": "Test Hiker"
+			},
+			"summaryStats": {
+				"distanceTotal": 1701.5,
+				"elevationGain": 51.1
+			},
+			"location": {
+				"latitude": 36.78102,
+				"longitude": -118.34519
+			},
+			"waypoints": [
+				{
+					"id": 830003,
+					"name": "Night 1 camp",
+					"description": "Alternate site.",
+					"location": {
+						"latitude": 36.78466,
+						"longitude": -118.34102
+					},
+					"createdAt": 1718201529
+				},
+				{
+					"id": 830004,
+					"name": "Bear box 🐻",
+					"description": "Shared.",
+					"location": {
+						"latitude": 36.78391,
+						"longitude": -118.34377
+					},
+					"createdAt": 1718201589
+				}
+			]
+		},
+		{
+			"id": 820003,
+			"name": "Gravel loop",
+			"notes": "",
+			"description": "Mostly fire roads.",
+			"createdAt": 1718721982,
+			"updatedAt": 1718896016,
+			"activityType": {
+				"uid": "mountain-biking"
+			},
+			"private": false,
+			"user": {
+				"id": 7001,
+				"name": "Test Hiker"
+			},
+			"summaryStats": {
+				"distanceTotal": 1307.3,
+				"elevationGain": 33.8
+			},
+			"location": {
+				"latitude": 36.72865,
+				"longitude": -118.36254
+			},
+			"waypoints": []
+		}
+	],
+	"meta": {
+		"nextCursor": null
+	}
+}

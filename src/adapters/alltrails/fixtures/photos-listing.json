@@ -1,0 +1,95 @@
+{
+	"items": [
+		{
+			"id": 860001,
+			"title": "Marmot!",
+			"caption": "He wanted my sandwich",
+			"createdAt": 1717514679,
+			"takenAt": 1717507479,
+			"user": {
+				"id": 7001,
+				"name": "Test Hiker"
+			},
+			"location": {
+				"latitude": 36.77188,
+				"longitude": -118.36907
+			},
+			"urls": {
+				"original": "http://cdn.alltrails.localhost:4610/p/860001/original",
+				"large": "http://cdn.alltrails.localhost:4610/p/860001/large"
+			},
+			"attachedTo": {
+				"type": "activity",
+				"id": 810001
+			}
+		},
+		{
+			"id": 869001,
+			"title": "Club photo",
+			"caption": "SENTINEL-OTHER-USER-DESCRIPTION",
+			"createdAt": 1717946679,
+			"takenAt": 1717939479,
+			"user": {
+				"id": 7999,
+				"name": "Sentinel Otheruser"
+			},
+			"location": {
+				"latitude": 36.79133,
+				"longitude": -118.33041
+			},
+			"urls": {
+				"original": "http://cdn.alltrails.localhost:4610/p/869001/original",
+				"large": "http://cdn.alltrails.localhost:4610/p/869001/large"
+			},
+			"attachedTo": {
+				"type": "activity",
+				"id": 819001
+			}
+		},
+		{
+			"id": 860002,
+			"title": "",
+			"caption": "",
+			"createdAt": 1717428279,
+			"takenAt": null,
+			"user": {
+				"id": 7001,
+				"name": "Test Hiker"
+			},
+			"location": null,
+			"urls": {
+				"large": "http://cdn.alltrails.localhost:4610/p/860002/large"
+			},
+			"attachedTo": {
+				"type": "map",
+				"id": 820001
+			}
+		},
+		{
+			"id": 860003,
+			"title": "Top of the falls",
+			"caption": "From my hike on the falls trail",
+			"createdAt": 1719501879,
+			"takenAt": 1719494679,
+			"user": {
+				"id": 7001,
+				"name": "Test Hiker"
+			},
+			"location": {
+				"latitude": 36.76604,
+				"longitude": -118.37712
+			},
+			"urls": {
+				"original": "http://cdn.alltrails.localhost:4610/p/860003/original",
+				"large": "http://cdn.alltrails.localhost:4610/p/860003/large"
+			},
+			"attachedTo": {
+				"type": "trail",
+				"id": 850001
+			}
+		}
+	],
+	"meta": {
+		"nextCursor": null
+	}
+}

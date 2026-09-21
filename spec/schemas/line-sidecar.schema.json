@@ -1,0 +1,175 @@
+{
+	"$id": "https://mapliberator.com/spec/1.0-draft/schemas/line-sidecar.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"type": "object",
+	"properties": {
+		"id": {
+			"type": "string",
+			"pattern": "^(track|route)\\/[0-9]{6,}$"
+		},
+		"kind": {
+			"type": "string",
+			"enum": [
+				"track",
+				"route"
+			]
+		},
+		"file": {
+			"type": "string",
+			"minLength": 1,
+			"maxLength": 255,
+			"pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+			"description": "Name of a file in the same directory as this sidecar"
+		},
+		"geometrySource": {
+			"type": "string",
+			"enum": [
+				"native-gpx",
+				"serialized"
+			]
+		},
+		"name": {
+			"type": "string"
+		},
+		"description": {
+			"type": [
+				"string",
+				"null"
+			]
+		},
+		"createdAt": {
+			"anyOf": [
+				{
+					"type": "string",
+					"pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$",
+					"description": "RFC 3339 timestamp, UTC"
+				},
+				{
+					"type": "null"
+				}
+			]
+		},
+		"updatedAt": {
+			"anyOf": [
+				{
+					"type": "string",
+					"pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$",
+					"description": "RFC 3339 timestamp, UTC"
+				},
+				{
+					"type": "null"
+				}
+			]
+		},
+		"visibility": {
+			"anyOf": [
+				{
+					"type": "string",
+					"enum": [
+						"private",
+						"unlisted",
+						"public"
+					]
+				},
+				{
+					"type": "null"
+				}
+			]
+		},
+		"tags": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			}
+		},
+		"source": {
+			"type": "object",
+			"properties": {
+				"platform": {
+					"type": "string",
+					"minLength": 1
+				},
+				"id": {
+					"type": "string"
+				},
+				"url": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"raw": {
+					"description": "Scrubbed source representation; only when requested"
+				}
+			},
+			"required": [
+				"platform",
+				"id"
+			],
+			"additionalProperties": {}
+		},
+		"activityType": {
+			"type": [
+				"string",
+				"null"
+			]
+		},
+		"stats": {
+			"type": "object",
+			"properties": {
+				"distanceMeters": {
+					"anyOf": [
+						{
+							"type": "number",
+							"minimum": 0
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"ascentMeters": {
+					"type": [
+						"number",
+						"null"
+					]
+				},
+				"durationSeconds": {
+					"anyOf": [
+						{
+							"type": "number",
+							"minimum": 0
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"pointCount": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 9007199254740991
+				}
+			},
+			"required": [
+				"pointCount"
+			],
+			"additionalProperties": {}
+		},
+		"sha256": {
+			"description": "Reserved for a future 1.x; not written by 1.0",
+			"type": "string"
+		}
+	},
+	"required": [
+		"id",
+		"kind",
+		"file",
+		"geometrySource",
+		"name",
+		"source",
+		"stats"
+	],
+	"additionalProperties": {},
+	"description": "Sidecar adjacent to a track or route GPX file"
+}

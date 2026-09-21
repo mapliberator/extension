@@ -1,0 +1,98 @@
+{
+	"count": 5,
+	"next": null,
+	"previous": null,
+	"results": [
+		{
+			"id": "gr-4001",
+			"title": "Whitney Portal to Lone Pine Lake",
+			"notes": "Planned for August.",
+			"time_created": "2024-06-03T07:40:02-07:00",
+			"updated_date": "2024-06-06T08:55:23-07:00",
+			"public": false,
+			"user_id": "gu-1001",
+			"user_email": "me@example.test",
+			"tags": [],
+			"activities": ["hiking"],
+			"distance": 2257.6,
+			"total_ascent": 57.9,
+			"start_location": {
+				"latitude": 36.586912,
+				"longitude": -118.240031
+			}
+		},
+		{
+			"id": "gr-4002",
+			"title": "Plan B: Meysan Lakes?",
+			"notes": "",
+			"time_created": "2024-06-07T09:35:34-07:00",
+			"updated_date": "2024-06-10T10:50:55-07:00",
+			"public": false,
+			"user_id": "gu-1001",
+			"user_email": "me@example.test",
+			"tags": ["plan-b"],
+			"activities": ["hiking"],
+			"distance": 1385.4,
+			"total_ascent": 41.9,
+			"start_location": {
+				"latitude": 36.580127,
+				"longitude": -118.232945
+			}
+		},
+		{
+			"id": "gr-9002",
+			"title": "Group route (shared)",
+			"notes": "SENTINEL-OTHER-USER-DESCRIPTION",
+			"time_created": "2024-06-10T07:40:02-07:00",
+			"updated_date": "2024-06-13T08:55:23-07:00",
+			"public": true,
+			"user_id": "gu-2002",
+			"user_name": "Sentinel Otheruser",
+			"user_email": "someone-else@example.test",
+			"tags": [],
+			"activities": ["hiking"],
+			"distance": 725.2,
+			"total_ascent": 24.7,
+			"start_location": {
+				"latitude": 36.610458,
+				"longitude": -118.262117
+			}
+		},
+		{
+			"id": "gr-4003",
+			"title": "Übernachtung am See",
+			"notes": "Two-day variant.",
+			"time_created": "2024-06-14T18:35:34+02:00",
+			"updated_date": "2024-06-17T19:50:55+02:00",
+			"public": false,
+			"user_id": "gu-1001",
+			"user_email": "me@example.test",
+			"tags": [],
+			"activities": ["backpacking"],
+			"distance": 3896.4,
+			"total_ascent": 109.5,
+			"start_location": {
+				"latitude": 36.566341,
+				"longitude": -118.329876
+			}
+		},
+		{
+			"id": "gr-4004",
+			"title": "Bike shuttle",
+			"notes": "",
+			"time_created": "2024-06-20T09:06:41-07:00",
+			"updated_date": "2024-06-23T10:22:02-07:00",
+			"public": false,
+			"user_id": "gu-1001",
+			"user_email": "me@example.test",
+			"tags": [],
+			"activities": ["mountain-biking"],
+			"distance": 598.3,
+			"total_ascent": 9.5,
+			"start_location": {
+				"latitude": 36.548823,
+				"longitude": -118.220764
+			}
+		}
+	]
+}

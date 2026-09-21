@@ -1,0 +1,25 @@
+{
+	"compilerOptions": {
+		"target": "ES2023",
+		"lib": ["ES2023", "DOM", "DOM.Iterable", "DOM.AsyncIterable", "WebWorker"],
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"noImplicitOverride": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"resolveJsonModule": true,
+		"allowImportingTsExtensions": true,
+		"verbatimModuleSyntax": true,
+		"types": ["node", "chrome"]
+	},
+	"include": [
+		"./**/*.ts",
+		"../scripts/**/*.ts",
+		"../e2e/**/*.ts",
+		"../tests/**/*.ts",
+		"../playwright.config.ts",
+		"../playwright.large.config.ts"
+	]
+}

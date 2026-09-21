@@ -1,0 +1,17 @@
+{
+	"extends": "./.wxt/tsconfig.json",
+	"compilerOptions": {
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"noImplicitOverride": true,
+		"allowImportingTsExtensions": true,
+		"verbatimModuleSyntax": true
+	},
+	"include": [
+		"src/**/*.ts",
+		"src/**/*.svelte",
+		".wxt/wxt.d.ts",
+		"wxt.config.ts",
+		"vitest.config.ts"
+	]
+}

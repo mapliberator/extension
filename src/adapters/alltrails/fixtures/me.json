@@ -1,0 +1,11 @@
+{
+	"user": {
+		"id": 7001,
+		"firstName": "Test",
+		"lastName": "Hiker",
+		"email": "me@example.test",
+		"slug": "test-hiker",
+		"metric": false
+	},
+	"csrfToken": "scrubbed"
+}

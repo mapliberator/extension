@@ -1,0 +1,57 @@
+{
+	"name": "mapliberator",
+	"private": true,
+	"version": "1.0.0",
+	"description": "Export your personal mapping data into an open, portable archive — entirely in your browser.",
+	"license": "MIT",
+	"type": "module",
+	"engines": {
+		"node": ">=22.12.0"
+	},
+	"scripts": {
+		"dev": "wxt",
+		"dev:firefox": "wxt -b firefox",
+		"build": "wxt build",
+		"build:firefox": "wxt build -b firefox",
+		"build:e2e": "wxt build --mode e2e",
+		"zip": "wxt zip",
+		"zip:firefox": "wxt zip -b firefox",
+		"postinstall": "wxt prepare",
+		"format": "prettier --write .",
+		"lint": "prettier --check .",
+		"typecheck": "tsc --noEmit && tsc --noEmit -p tools/tsconfig.json",
+		"test:unit": "vitest run",
+		"spec:generate": "tsx scripts/generate-spec-schemas.ts",
+		"fixtures:generate": "tsx scripts/generate-fixtures.ts",
+		"fake-source": "tsx tools/fake-source/cli.ts",
+		"pma-validate": "tsx tools/pma-validate/cli.ts",
+		"test:e2e": "playwright test",
+		"verify": "node scripts/verify.mjs",
+		"verify:large": "node scripts/verify-large.mjs"
+	},
+	"devDependencies": {
+		"@playwright/test": "^1.63.0",
+		"@tailwindcss/vite": "^4.3.3",
+		"@types/chrome": "^0.3.0",
+		"@types/node": "^22.20.4",
+		"@types/yauzl": "^3.4.0",
+		"@wxt-dev/module-svelte": "^2.0.5",
+		"ajv": "^8.20.0",
+		"prettier": "^3.9.8",
+		"prettier-plugin-svelte": "^4.1.1",
+		"svelte": "^5.57.1",
+		"svelte-check": "^4.7.6",
+		"tailwindcss": "^4.3.3",
+		"tsx": "^4.23.15",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.11",
+		"web-ext": "^10.7.0",
+		"wxt": "^0.21.4",
+		"yauzl": "^3.4.0"
+	},
+	"dependencies": {
+		"@zip.js/zip.js": "^2.16.1",
+		"saxes": "^6.0.0",
+		"zod": "^4.6.5"
+	}
+}

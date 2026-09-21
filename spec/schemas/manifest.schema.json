@@ -1,0 +1,263 @@
+{
+	"$id": "https://mapliberator.com/spec/1.0-draft/schemas/manifest.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"type": "object",
+	"properties": {
+		"format": {
+			"type": "string",
+			"const": "portable-map-archive"
+		},
+		"version": {
+			"type": "number",
+			"const": 1
+		},
+		"createdAt": {
+			"type": "string",
+			"pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$",
+			"description": "RFC 3339 timestamp, UTC"
+		},
+		"status": {
+			"type": "string",
+			"enum": [
+				"complete",
+				"partial"
+			]
+		},
+		"part": {
+			"type": "object",
+			"properties": {
+				"index": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 9007199254740991
+				},
+				"of": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 9007199254740991
+				}
+			},
+			"required": [
+				"index",
+				"of"
+			],
+			"additionalProperties": {},
+			"description": "Reserved for multi-part archives; 1.0 always writes { index: 1, of: 1 }"
+		},
+		"generator": {
+			"type": "object",
+			"properties": {
+				"name": {
+					"type": "string"
+				},
+				"version": {
+					"type": "string"
+				},
+				"browser": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"name",
+				"version"
+			],
+			"additionalProperties": {}
+		},
+		"source": {
+			"type": "object",
+			"properties": {
+				"platform": {
+					"type": "string",
+					"minLength": 1
+				},
+				"adapterVersion": {
+					"type": "string"
+				},
+				"account": {
+					"type": "object",
+					"properties": {
+						"id": {
+							"type": "string"
+						},
+						"displayName": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"id",
+						"displayName"
+					],
+					"additionalProperties": {}
+				}
+			},
+			"required": [
+				"platform",
+				"adapterVersion",
+				"account"
+			],
+			"additionalProperties": {}
+		},
+		"selection": {
+			"type": "object",
+			"properties": {
+				"routes": {
+					"type": "string",
+					"enum": [
+						"included",
+						"excluded"
+					]
+				},
+				"tracks": {
+					"type": "string",
+					"enum": [
+						"included",
+						"excluded"
+					]
+				},
+				"waypoints": {
+					"type": "string",
+					"enum": [
+						"included",
+						"excluded"
+					]
+				},
+				"areas": {
+					"type": "string",
+					"enum": [
+						"included",
+						"excluded"
+					]
+				},
+				"collections": {
+					"type": "string",
+					"enum": [
+						"included",
+						"excluded"
+					]
+				},
+				"photos": {
+					"type": "string",
+					"enum": [
+						"included",
+						"excluded"
+					]
+				},
+				"rawSourceData": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"routes",
+				"tracks",
+				"waypoints",
+				"areas",
+				"collections",
+				"photos",
+				"rawSourceData"
+			],
+			"additionalProperties": {}
+		},
+		"contents": {
+			"type": "object",
+			"properties": {
+				"routes": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 9007199254740991
+				},
+				"tracks": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 9007199254740991
+				},
+				"waypoints": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 9007199254740991
+				},
+				"areas": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 9007199254740991
+				},
+				"collections": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 9007199254740991
+				},
+				"photos": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 9007199254740991
+				}
+			},
+			"required": [
+				"routes",
+				"tracks",
+				"waypoints",
+				"areas",
+				"collections",
+				"photos"
+			],
+			"additionalProperties": {}
+		},
+		"errors": {
+			"type": "object",
+			"properties": {
+				"routes": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 9007199254740991
+				},
+				"tracks": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 9007199254740991
+				},
+				"waypoints": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 9007199254740991
+				},
+				"areas": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 9007199254740991
+				},
+				"collections": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 9007199254740991
+				},
+				"photos": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 9007199254740991
+				}
+			},
+			"required": [
+				"routes",
+				"tracks",
+				"waypoints",
+				"areas",
+				"collections",
+				"photos"
+			],
+			"additionalProperties": {}
+		}
+	},
+	"required": [
+		"format",
+		"version",
+		"createdAt",
+		"status",
+		"part",
+		"generator",
+		"source",
+		"selection",
+		"contents",
+		"errors"
+	],
+	"additionalProperties": {},
+	"description": "manifest.json — always the last entry of the archive"
+}

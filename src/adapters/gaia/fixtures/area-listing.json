@@ -1,0 +1,59 @@
+{
+	"count": 2,
+	"next": null,
+	"previous": null,
+	"results": [
+		{
+			"id": "ga-6001",
+			"title": "Closure zone 2024",
+			"notes": "Per ranger station notice.",
+			"time_created": "2024-06-04T08:08:55-07:00",
+			"updated_date": "2024-06-07T09:24:16-07:00",
+			"public": false,
+			"user_id": "gu-1001",
+			"user_email": "me@example.test",
+			"tags": [],
+			"area": 535746,
+			"geometry": {
+				"type": "Polygon",
+				"coordinates": [
+					[
+						[-118.3105, 36.5682],
+						[-118.305766, 36.567232],
+						[-118.306703, 36.563504],
+						[-118.30833, 36.560581],
+						[-118.313122, 36.559826],
+						[-118.314287, 36.563506],
+						[-118.314426, 36.566715],
+						[-118.3105, 36.5682]
+					]
+				]
+			}
+		},
+		{
+			"id": "ga-6002",
+			"title": "Possible campsites",
+			"notes": "",
+			"time_created": "2024-06-16T07:11:09-07:00",
+			"updated_date": "2024-06-19T08:26:30-07:00",
+			"public": false,
+			"user_id": "gu-1001",
+			"user_email": "me@example.test",
+			"tags": ["camp"],
+			"area": 71395,
+			"geometry": {
+				"type": "Polygon",
+				"coordinates": [
+					[
+						[-118.2688, 36.5936],
+						[-118.26664, 36.592664],
+						[-118.267941, 36.591151],
+						[-118.269903, 36.590881],
+						[-118.270956, 36.592663],
+						[-118.2688, 36.5936]
+					]
+				]
+			}
+		}
+	]
+}

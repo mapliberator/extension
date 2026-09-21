@@ -1,0 +1,16 @@
+package-lock.json
+/.output/
+/.wxt/
+/node_modules/
+/test-results/
+/playwright-report/
+/.e2e-tmp/
+# Byte-exact test data
+/tools/pma-validate/fixtures/
+*.gpx
+# Generated from zod by scripts/generate-spec-schemas.ts (byte-compared in tests)
+/spec/schemas/
+# Product documents: left exactly as their author wrote them
+/goal.md
+/prd-v1.md
+/prd-v2.md

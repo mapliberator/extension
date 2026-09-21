@@ -1,0 +1,56 @@
+{
+	"$id": "https://mapliberator.com/spec/1.0-draft/schemas/errors.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"type": "array",
+	"items": {
+		"type": "object",
+		"properties": {
+			"type": {
+				"type": "string",
+				"enum": [
+					"track",
+					"route",
+					"waypoint",
+					"area",
+					"photo",
+					"collection"
+				]
+			},
+			"id": {
+				"anyOf": [
+					{
+						"type": "string",
+						"pattern": "^(track|route|waypoint|area|photo|collection)\\/[0-9]{6,}$",
+						"description": "Archive-local ID: \"<type>/<sequence>\""
+					},
+					{
+						"type": "null"
+					}
+				],
+				"description": "Archive-local ID the object would have had"
+			},
+			"sourceId": {
+				"type": [
+					"string",
+					"null"
+				]
+			},
+			"adapter": {
+				"type": "string",
+				"description": "\"<adapter id>@<adapter version>\""
+			},
+			"error": {
+				"type": "string"
+			}
+		},
+		"required": [
+			"type",
+			"id",
+			"sourceId",
+			"adapter",
+			"error"
+		],
+		"additionalProperties": {}
+	},
+	"description": "errors.json"
+}

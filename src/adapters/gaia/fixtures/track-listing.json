@@ -1,0 +1,148 @@
+{
+	"count": 7,
+	"next": null,
+	"previous": null,
+	"results": [
+		{
+			"id": "gt-3001",
+			"title": "Morning loop / ridge ../summit",
+			"notes": "Sunrise lap before work. Windy on top.",
+			"time_created": "2024-06-02T07:11:09-07:00",
+			"updated_date": "2024-06-05T08:26:30-07:00",
+			"public": false,
+			"user_id": "gu-1001",
+			"user_email": "me@example.test",
+			"tags": ["sierra", "loop"],
+			"activities": ["hiking"],
+			"distance": 3325.1,
+			"total_ascent": 82,
+			"total_time": 1760,
+			"color": "#ff0000",
+			"start_location": {
+				"latitude": 36.578581,
+				"longitude": -118.292288
+			}
+		},
+		{
+			"id": "gt-3002",
+			"title": "🏔️🥾",
+			"notes": "",
+			"time_created": "2024-06-05T08:37:48-07:00",
+			"updated_date": "2024-06-08T09:53:09-07:00",
+			"public": false,
+			"user_id": "gu-1001",
+			"user_email": "me@example.test",
+			"tags": [],
+			"activities": ["backpacking", "hiking"],
+			"distance": 1203.5,
+			"total_ascent": 31.7,
+			"total_time": 576,
+			"color": "#00aa55",
+			"start_location": {
+				"latitude": 36.561204,
+				"longitude": -118.301977
+			}
+		},
+		{
+			"id": "gt-3003",
+			"title": "Sentier des Crêtes – Übergang à l’été",
+			"notes": "Déjeuner au col — très beau. <3 & \"quotes\"",
+			"time_created": "2024-06-11T17:08:55+02:00",
+			"updated_date": "2024-06-14T18:24:16+02:00",
+			"public": true,
+			"user_id": "gu-1001",
+			"user_email": "me@example.test",
+			"tags": ["été"],
+			"activities": ["hiking"],
+			"distance": 4518,
+			"total_ascent": 100.4,
+			"total_time": 2347,
+			"color": "#ff5a00",
+			"start_location": {
+				"latitude": 36.590115,
+				"longitude": -118.270843
+			}
+		},
+		{
+			"id": "gt-9001",
+			"title": "Shared ridge run",
+			"notes": "SENTINEL-OTHER-USER-DESCRIPTION",
+			"time_created": "2024-06-13T09:06:41-07:00",
+			"updated_date": "2024-06-16T10:22:02-07:00",
+			"public": true,
+			"user_id": "gu-2002",
+			"user_name": "Sentinel Otheruser",
+			"user_email": "someone-else@example.test",
+			"tags": [],
+			"activities": ["trail-running"],
+			"distance": 873.4,
+			"total_ascent": 18.9,
+			"total_time": 435,
+			"color": "#ff5a00",
+			"start_location": {
+				"latitude": 36.602331,
+				"longitude": -118.251092
+			}
+		},
+		{
+			"id": "gt-3004",
+			"title": "Very long name that keeps going and going to exercise the filename sanitizer limits across ridges, valleys, rivers, meadows, passes and several more words than anyone would type",
+			"notes": "Long day.",
+			"time_created": "2024-06-17T07:40:02-07:00",
+			"updated_date": "2024-06-20T08:55:23-07:00",
+			"public": false,
+			"user_id": "gu-1001",
+			"user_email": "me@example.test",
+			"tags": [],
+			"activities": ["hiking"],
+			"distance": 5726,
+			"total_ascent": 144.1,
+			"total_time": 2821,
+			"color": "#3366ff",
+			"start_location": {
+				"latitude": 36.553017,
+				"longitude": -118.313452
+			}
+		},
+		{
+			"id": "gt-3005",
+			"title": "Evening walk",
+			"notes": "",
+			"time_created": "2024-06-22T10:04:27-07:00",
+			"updated_date": "2024-06-25T11:19:48-07:00",
+			"public": false,
+			"user_id": "gu-1001",
+			"user_email": "me@example.test",
+			"tags": [],
+			"activities": ["walking"],
+			"distance": 694,
+			"total_ascent": 11.5,
+			"total_time": 323,
+			"color": "#ff5a00",
+			"start_location": {
+				"latitude": 36.571839,
+				"longitude": -118.288014
+			}
+		},
+		{
+			"id": "gt-3006",
+			"title": "Evening walk",
+			"notes": "Paused for dinner, so two segments.",
+			"time_created": "2024-06-23T07:11:09-07:00",
+			"updated_date": "2024-06-26T08:26:30-07:00",
+			"public": false,
+			"user_id": "gu-1001",
+			"user_email": "me@example.test",
+			"tags": [],
+			"activities": ["walking"],
+			"distance": 1758,
+			"total_ascent": 45.9,
+			"total_time": 1580,
+			"color": "#ff5a00",
+			"start_location": {
+				"latitude": 36.571902,
+				"longitude": -118.287655
+			}
+		}
+	]
+}
