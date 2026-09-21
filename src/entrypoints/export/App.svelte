@@ -62,6 +62,10 @@
 
 	const label = $derived(view.source?.label ?? 'your account');
 	const paused = $derived(view.run.state === 'paused' ? view.run.pause : null);
+	// Preflight counts arrive one type at a time; say so instead of looking stuck.
+	const totalTypes = 6;
+	const countedTypes = $derived(Object.keys(view.counts).length);
+	const counting = $derived(view.phase === 'connecting' && view.user !== null);
 	const nothingSelected = $derived(TYPES.every((type) => !selection[type]));
 	const countdown = $derived.by(() => {
 		if (!paused?.resumeAt) return null;
@@ -80,7 +84,7 @@
 			case 'network':
 				return 'the network connection was lost.';
 			case 'tab-lost':
-				return `the ${label} tab was closed. Reopening it…`;
+				return `lost the connection to the ${label} tab. Reopening it…`;
 			case 'failures':
 				return `${label} keeps returning errors.`;
 		}
@@ -100,6 +104,15 @@
 		setTimeout(() => (copied = false), 2000);
 	}
 </script>
+
+{#snippet spinner()}
+	<span
+		class="inline-block size-3 animate-spin rounded-full border-2 border-current border-t-transparent align-[-1px]"
+		role="status"
+		aria-label="Working"
+		data-testid="spinner"
+	></span>
+{/snippet}
 
 <main
 	class="mx-auto max-w-xl px-6 py-12"
@@ -154,7 +167,9 @@
 					</span>
 				</li>
 				<li class="flex gap-3">
-					<span class="w-4">{view.user ? '✓' : '·'}</span>
+					<span class="w-4">
+						{#if view.user}✓{:else if view.phase === 'connecting' && !paused}{@render spinner()}{:else}·{/if}
+					</span>
 					<span class="w-24 font-medium">Session</span>
 					<span class="text-muted">
 						{#if view.user}Connected{:else if view.phase === 'connecting'}Connecting…{:else}—{/if}
@@ -170,7 +185,26 @@
 						{:else}—{/if}
 					</span>
 				</li>
+				<li class="flex gap-3" data-testid="library-row">
+					<span class="w-4">
+						{#if view.phase === 'ready'}✓{:else if counting && !paused}{@render spinner()}{:else}·{/if}
+					</span>
+					<span class="w-24 font-medium">Library</span>
+					<span class="text-muted">
+						{#if view.phase === 'ready'}
+							Ready
+						{:else if counting}
+							Looking through your {label} library… ({countedTypes} of {totalTypes})
+						{:else}—{/if}
+					</span>
+				</li>
 			</ul>
+			{#if view.phase !== 'permission'}
+				<p class="text-muted mt-4 text-xs">
+					MapLiberator uses a {label} tab in the background to fetch your data. Leave it open — it closes
+					by itself when the export ends.
+				</p>
+			{/if}
 
 			{#if view.phase === 'permission'}
 				<button
@@ -203,6 +237,9 @@
 				<p class="text-muted mt-2 text-sm">
 					Switch to the {label} tab, complete the check, then resume.
 				</p>
+			{/if}
+			{#if paused.reason === 'tab-lost' && view.sourceTabNote}
+				<p class="text-muted mt-2 text-sm" data-testid="source-tab-note">{view.sourceTabNote}</p>
 			{/if}
 			{#if countdown}
 				<p class="mt-2 text-sm" data-testid="auto-resume">Resuming automatically in {countdown}</p>

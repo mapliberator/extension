@@ -22,58 +22,69 @@ const FAILING_TRACK = 'gt-3005';
 const FAILING_ROUTE = 'gr-4002';
 const FAILING_PHOTO = 'gp-7003';
 const SLOW_TRACK = 'gt-3002';
+const HTML_GPX_ROUTE = 'gr-4003';
 
 const FAULTS: Fault[] = [
 	// Permanently failing items: both geometry paths of one track and one route, one photo.
 	{
 		platform: gaia,
-		match: `^/api/v3/track/${FAILING_TRACK}/$`,
+		match: `^/api/objects/track/${FAILING_TRACK}/$`,
 		action: { kind: 'status', status: 500 }
 	},
 	{
 		platform: gaia,
-		match: `^/api/v3/route/${FAILING_ROUTE}(\\.gpx|/)$`,
+		match: `^/api/objects/route/${FAILING_ROUTE}(\\.gpx|/)$`,
 		action: { kind: 'status', status: 500 }
 	},
 	{ platform: gaia, match: `^/photos/${FAILING_PHOTO}/`, action: { kind: 'status', status: 404 } },
 	// Slow JSON fallback for one track, so the test can kill the source tab mid-request.
 	{
 		platform: gaia,
-		match: `^/api/v3/track/${SLOW_TRACK}/$`,
+		match: `^/api/objects/track/${SLOW_TRACK}/$`,
 		count: 1,
 		action: { kind: 'delay', ms: 4000 }
 	},
+	// An HTML page served with 200 on one route's GPX endpoint: it must never reach the archive.
+	{
+		platform: gaia,
+		match: `^/api/objects/route/${HTML_GPX_ROUTE}\\.gpx$`,
+		action: { kind: 'challenge' }
+	},
 	// GPX endpoints for tracks are gated.
-	{ platform: gaia, match: '^/api/v3/track/[^/]+\\.gpx$', action: { kind: 'status', status: 403 } },
+	{
+		platform: gaia,
+		match: '^/api/objects/track/[^/]+\\.gpx$',
+		action: { kind: 'status', status: 403 }
+	},
 	// Transient 429s with Retry-After: absorbed by engine retries.
 	{
 		platform: gaia,
-		match: '^/api/v3/track/\\?',
+		match: '^/api/objects/track/$',
 		count: 2,
 		action: { kind: 'status', status: 429, retryAfter: 1 }
 	},
 	// Persistent 429s: circuit opens → paused (rate-limited) → automatic resume.
 	{
 		platform: gaia,
-		match: '^/api/v3/route/\\?',
+		match: '^/api/objects/route/$',
 		count: 5,
 		action: { kind: 'status', status: 429 }
 	},
 	// HTML challenge page where JSON was expected → paused until the user resumes.
-	{ platform: gaia, match: '^/api/v3/waypoint/\\?', count: 1, action: { kind: 'challenge' } },
+	{ platform: gaia, match: '^/api/objects/waypoint/$', count: 1, action: { kind: 'challenge' } },
 	// Dropped connections. Mid-response, because Chromium itself silently re-sends a GET whose
 	// reused socket died before any response bytes — a second hit the engine never issued, which
 	// would muddy the pacing measurement below.
 	{
 		platform: gaia,
-		match: '^/api/v3/area/\\?',
+		match: '^/api/objects/area/$',
 		count: 2,
 		action: { kind: 'drop', when: 'mid-response' }
 	},
 	// …and one reset before any response bytes, on the photo CDN (no pacing floor there).
 	{ platform: gaia, match: '^/photos/gp-7001/', count: 1, action: { kind: 'drop' } },
 	// Mid-run session expiry.
-	{ platform: gaia, match: '^/api/v3/photo/\\?', count: 1, action: { kind: 'expire-session' } }
+	{ platform: gaia, match: '^/api/objects/photo/$', count: 1, action: { kind: 'expire-session' } }
 ];
 
 test('faults: 429s, challenge, dropped connection, session expiry, killed source tab, gated GPX → pauses, resumes, completes as partial', async ({
@@ -93,7 +104,7 @@ test('faults: 429s, challenge, dropped connection, session expiry, killed source
 
 	// Kill the source tab while a request is in flight: recreate, re-inject, retry.
 	await expect
-		.poll(() => fake.log().some((entry) => entry.path === `/api/v3/track/${SLOW_TRACK}/`), {
+		.poll(() => fake.log().some((entry) => entry.path === `/api/objects/track/${SLOW_TRACK}/`), {
 			timeout: 60_000
 		})
 		.toBe(true);
@@ -181,6 +192,11 @@ test('faults: 429s, challenge, dropped connection, session expiry, killed source
 		expected.ids.routes.filter((id) => id !== FAILING_ROUTE)
 	);
 	for (const sidecar of routes) {
+		if (sidecar.source.id === HTML_GPX_ROUTE) {
+			// Fell back to the serializer instead of storing the HTML.
+			expect(sidecar.geometrySource).toBe('serialized');
+			continue;
+		}
 		expect(sidecar.geometrySource).toBe('native-gpx');
 		expect(
 			archive
@@ -206,10 +222,7 @@ test('faults: AllTrails login redirect mid-run pauses for re-authentication, the
 	const expected = fake.expected(platform);
 	const page = await openExportPage(context, extensionId, platform);
 	await preflight(page, expected.account.displayName);
-	fake.setFaults([
-		{ platform, match: '/maps\\?', count: 1, action: { kind: 'expire-session' } },
-		{ platform, match: '/export\\?format=gpx', skip: 1, count: 1, action: { kind: 'challenge' } }
-	]);
+	fake.setFaults([{ platform, match: '/maps\\?', count: 1, action: { kind: 'expire-session' } }]);
 	fake.resetLog();
 	await page.getByTestId('start-export').click();
 
@@ -226,15 +239,12 @@ test('faults: AllTrails login redirect mid-run pauses for re-authentication, the
 	expect(manifest.status).toBe('complete');
 	expect(manifest.contents).toEqual(expected.counts);
 
-	// An HTML page served with 200 on a GPX endpoint never reaches the archive: that one object
-	// falls back to the serializer.
+	// No GPX export on this platform: every recording is rebuilt from its map data.
 	const sources = archive.names
 		.filter((name) => name.startsWith('tracks/') && name.endsWith('.json'))
 		.map((name) => archive.json(name).geometrySource);
-	expect(sources.filter((source: string) => source === 'serialized')).toHaveLength(1);
-	for (const [name, bytes] of archive.all()) {
-		if (name.endsWith('.gpx')) expect(bytes.toString('utf8')).not.toMatch(/<html/i);
-	}
+	expect(sources).toHaveLength(expected.counts.tracks);
+	expect(sources.every((source: string) => source === 'serialized')).toBe(true);
 
 	expect(findSentinels(archivePath, archive, allSentinels(platform))).toEqual({});
 	assertOnlyFakeSourceHosts(requests, fake);
@@ -250,7 +260,7 @@ test('faults: schema drift on a listing endpoint fails the run, naming adapter a
 	const page = await openExportPage(context, extensionId, gaia);
 	await preflight(page, fake.expected(gaia).account.displayName);
 	fake.setFaults([
-		{ platform: gaia, match: '^/api/v3/waypoint/\\?', action: { kind: 'schema-drift' } }
+		{ platform: gaia, match: '^/api/objects/waypoint/$', action: { kind: 'schema-drift' } }
 	]);
 	await page.getByTestId('start-export').click();
 

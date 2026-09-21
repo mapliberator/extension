@@ -3,6 +3,7 @@
  * transport; it never retries and never emits archive bytes (PRD §6.1).
  */
 import { z } from 'zod';
+import { AdapterOutdatedError } from '../../shared/errors';
 import type {
 	AdapterFactory,
 	AreaRecord,
@@ -17,6 +18,7 @@ import type {
 import { sourceHosts } from '../hosts';
 import { parseItem, parseListing } from '../support';
 import {
+	isOwnFolder,
 	mapArea,
 	mapFolder,
 	mapForeignLine,
@@ -25,10 +27,12 @@ import {
 	mapPhoto,
 	mapSharedFolder,
 	mapWaypoint,
+	waypointCoordinate,
 	type GaiaUrls
 } from './mapper';
 import {
-	GaiaAreaSchema,
+	GaiaAreaDetailSchema,
+	GaiaAreaSummarySchema,
 	GaiaFolderSchema,
 	GaiaLineDetailSchema,
 	GaiaPhotoSchema,
@@ -38,7 +42,6 @@ import {
 	gaiaListingSchema
 } from './schemas';
 
-const PAGE_SIZE = 100;
 const LISTING_PATHS = {
 	track: 'track',
 	route: 'route',
@@ -53,67 +56,85 @@ export const SHARED_WITH_ME_KEY = 'mapliberator:shared-with-me';
 export const createGaiaAdapter: AdapterFactory = (transport, mode) => {
 	const hosts = sourceHosts(mode).gaiagps;
 	const origin = hosts.origins[0]!;
-	const api = `${origin}/api/v3`;
+	const objects = `${origin}/api/objects`;
 	const identity = { label: 'Gaia GPS', version: '1.0.0' };
 	const urls: GaiaUrls = {
-		object: (type, id) => `${origin}/datasummary/${type}/${encodeURIComponent(id)}/`
+		object: (type, id) => `${origin}/datasummary/${type}/${encodeURIComponent(id)}/`,
+		photoFile: (id) => `${objects}/photo/${encodeURIComponent(id)}/image/full/`
 	};
 
-	let me: UserInfo | null = null;
+	let me: (UserInfo & { numericId: number }) | null = null;
 	/** Other users' objects seen in my listings, kept only as references for collections. */
 	const foreign = new Map<string, ReferenceRecord>();
+	let sharedMembers: Promise<Set<string>> | null = null;
 
 	async function identifyUser(): Promise<UserInfo> {
 		const user = parseListing(
 			identity,
 			GaiaUserSchema,
-			await transport.getJson(`${api}/me/`),
+			await transport.getJson(`${origin}/api/v3/user/`),
 			'account'
 		);
-		me = { id: user.id, displayName: user.display_name };
-		return me;
-	}
-
-	async function requireUser(): Promise<UserInfo> {
-		return me ?? identifyUser();
-	}
-
-	async function* pages<S extends z.ZodType>(
-		type: ObjectType,
-		item: S
-	): AsyncGenerator<z.output<S>> {
-		const schema = gaiaListingSchema(item);
-		let url: string | null = `${api}/${LISTING_PATHS[type]}/?page=1&page_size=${PAGE_SIZE}`;
-		while (url) {
-			const page: z.output<typeof schema> = parseListing(
-				identity,
-				schema,
-				await transport.getJson(url),
-				`${type} listing`
-			);
-			yield* page.results as z.output<S>[];
-			// Only ever follow pagination on our own API origin.
-			url =
-				page.next && new URL(page.next, origin).origin === origin
-					? new URL(page.next, origin).href
-					: null;
+		if (user.id === null) {
+			throw new AdapterOutdatedError(identity.label, identity.version, 'account has no id');
 		}
+		me = {
+			id: String(user.id),
+			displayName: user.display_name?.trim() || user.username?.trim() || 'Gaia GPS user',
+			numericId: user.id
+		};
+		return { id: me.id, displayName: me.displayName };
+	}
+
+	/** The whole collection in one response, minus what the user has deleted. */
+	async function list<S extends z.ZodType>(type: ObjectType, item: S): Promise<z.output<S>[]> {
+		const listed = parseListing(
+			identity,
+			gaiaListingSchema(item),
+			await transport.getJson(`${objects}/${LISTING_PATHS[type]}/`),
+			`${type} listing`
+		) as (z.output<S> & { deleted?: boolean })[];
+		return listed.filter((object) => object.deleted !== true);
+	}
+
+	/**
+	 * Listings do not say who owns an object. Whatever sits in somebody else's folder might be
+	 * theirs, so those — and only those — get their owner checked on the detail response.
+	 */
+	function membersOfSharedFolders(): Promise<Set<string>> {
+		sharedMembers ??= list('collection', GaiaFolderSchema).then((folders) => {
+			const ids = new Set<string>();
+			for (const folder of folders) {
+				if (isOwnFolder(folder)) continue;
+				for (const id of folder.tracks) ids.add(`track:${id}`);
+				for (const id of folder.routes) ids.add(`route:${id}`);
+			}
+			return ids;
+		});
+		// A failed attempt must not stick.
+		sharedMembers.catch(() => (sharedMembers = null));
+		return sharedMembers;
 	}
 
 	async function* lines(kind: 'track' | 'route'): AsyncGenerator<LineRecord> {
-		const user = await requireUser();
-		for await (const summary of pages(kind, GaiaTrackSummarySchema)) {
+		const user = me ?? (await identifyUser(), me!);
+		const suspects = await membersOfSharedFolders();
+		for (const summary of await list(kind, GaiaTrackSummarySchema)) {
+			const objectApi = `${objects}/${kind}/${encodeURIComponent(summary.id)}`;
+			const loadDetail = async () =>
+				parseItem(GaiaLineDetailSchema, await transport.getJson(`${objectApi}/`));
 			// Authored → full content; merely listed → reference (PRD §6.4).
-			if (summary.user_id !== user.id) {
-				foreign.set(`${kind}:${summary.id}`, mapForeignLine(kind, summary, urls));
-				continue;
+			if (suspects.has(`${kind}:${summary.id}`)) {
+				const detail = await loadDetail();
+				if (detail.features[0]!.properties.user_id !== user.numericId) {
+					foreign.set(`${kind}:${summary.id}`, mapForeignLine(kind, summary, detail, urls));
+					continue;
+				}
 			}
-			const objectApi = `${api}/${kind}/${encodeURIComponent(summary.id)}`;
 			yield {
 				...mapLineSummary(kind, summary, urls),
 				nativeGpx: { method: 'GET', url: `${objectApi}.gpx`, accept: 'text-stream' },
-				loadSegments: async () =>
-					mapLineGeometry(parseItem(GaiaLineDetailSchema, await transport.getJson(`${objectApi}/`)))
+				loadSegments: async () => mapLineGeometry(await loadDetail())
 			};
 		}
 	}
@@ -126,41 +147,49 @@ export const createGaiaAdapter: AdapterFactory = (transport, mode) => {
 		assetOrigins: hosts.assetOrigins,
 		limits: { apiConcurrency: 2, assetConcurrency: 4, minIntervalMs: 150 },
 		bridgeUrl: `${origin}/robots.txt`,
-		loginUrl: `${origin}/login`,
+		loginUrl: `${origin}/login/`,
 		isLoginUrl: (url) => new URL(url).pathname.startsWith('/login'),
-		rawScrubKeys: ['saved_hikes', 'shared_by', 'user_name'],
+		// Signed out: a bare 403 on the object API, or an anonymous answer from the account endpoint.
+		isSignedOut: (response) =>
+			(response.status === 403 && response.bodyKind === 'empty') ||
+			(response.status === 200 &&
+				typeof response.json === 'object' &&
+				response.json !== null &&
+				(response.json as { is_authenticated?: unknown }).is_authenticated === false),
+		rawScrubKeys: [],
 		notes: [],
 
 		identifyUser,
 
 		async count(type) {
-			const schema = gaiaListingSchema(z.unknown());
-			const json = await transport.getJson(`${api}/${LISTING_PATHS[type]}/?page=1&page_size=1`);
-			return parseListing(identity, schema, json, `${type} count`).count;
+			return (await list(type, z.looseObject({ deleted: z.boolean().optional() }))).length;
 		},
 
 		enumerateTracks: () => lines('track'),
 		enumerateRoutes: () => lines('route'),
 
 		async *enumerateWaypoints(): AsyncGenerator<WaypointRecord> {
-			const user = await requireUser();
-			for await (const waypoint of pages('waypoint', GaiaWaypointSchema)) {
-				if (waypoint.user_id === user.id) yield mapWaypoint(waypoint, urls);
+			for (const waypoint of await list('waypoint', GaiaWaypointSchema)) {
+				yield mapWaypoint(waypoint, urls);
 			}
 		},
 
 		async *enumerateAreas(): AsyncGenerator<AreaRecord> {
-			const user = await requireUser();
-			for await (const area of pages('area', GaiaAreaSchema)) {
-				if (area.user_id === user.id) yield mapArea(area, urls);
+			for (const area of await list('area', GaiaAreaSummarySchema)) {
+				const detail = parseListing(
+					identity,
+					GaiaAreaDetailSchema,
+					await transport.getJson(`${objects}/area/${encodeURIComponent(area.id)}/`),
+					'area detail'
+				);
+				yield mapArea(area, detail, urls);
 			}
 		},
 
 		async *enumerateCollections(): AsyncGenerator<CollectionRecord> {
-			const user = await requireUser();
 			const shared: ReferenceRecord[] = [];
-			for await (const folder of pages('collection', GaiaFolderSchema)) {
-				if (folder.user_id === user.id) yield mapFolder(folder, urls, foreign);
+			for (const folder of await list('collection', GaiaFolderSchema)) {
+				if (isOwnFolder(folder)) yield mapFolder(folder, urls, foreign);
 				else shared.push(mapSharedFolder(folder, urls));
 			}
 			if (shared.length > 0) {
@@ -179,10 +208,14 @@ export const createGaiaAdapter: AdapterFactory = (transport, mode) => {
 		},
 
 		async *enumeratePhotos(): AsyncGenerator<PhotoRecord> {
-			const user = await requireUser();
-			for await (const photo of pages('photo', GaiaPhotoSchema)) {
-				// Only photos uploaded by the user.
-				if (photo.user_id === user.id) yield mapPhoto(photo, urls);
+			// Photos carry no coordinate of their own; their waypoints do.
+			const waypoints = new Map(
+				(await list('waypoint', GaiaWaypointSchema)).map(
+					(waypoint) => [waypoint.id, waypointCoordinate(waypoint)] as const
+				)
+			);
+			for (const photo of await list('photo', GaiaPhotoSchema)) {
+				yield mapPhoto(photo, urls, waypoints);
 			}
 		}
 	};

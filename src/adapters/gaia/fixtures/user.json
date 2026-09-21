@@ -1,0 +1,15 @@
+{
+	"id": 1001,
+	"display_name": "Test H.",
+	"username": "me@example.test",
+	"email": "me@example.test",
+	"first_name": "Test",
+	"last_name": "Hiker",
+	"is_authenticated": true,
+	"distance_units": "imperial",
+	"didomi_auth": {
+		"id": "didomi-1001",
+		"algorithm": "hmac-sha256",
+		"digest": "scrubbed"
+	}
+}

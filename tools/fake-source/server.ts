@@ -4,13 +4,21 @@ import type { AddressInfo } from 'node:net';
 import { performance } from 'node:perf_hooks';
 import {
 	buildAllTrails,
+	allTrailsPhotoRedirect,
 	handleAllTrailsApi,
 	handleAllTrailsCdn,
 	trailBySlug,
 	type AllTrailsData
 } from './alltrails.ts';
 import { resolveDataset, type Env, type ResolvedDataset } from './dataset.ts';
-import { buildGaia, handleGaiaApi, handleGaiaCdn, type GaiaData } from './gaia.ts';
+import {
+	GAIA_ANONYMOUS_USER,
+	buildGaia,
+	gaiaPhotoRedirect,
+	handleGaiaApi,
+	handleGaiaCdn,
+	type GaiaData
+} from './gaia.ts';
 import { xmlEscape } from './gpx.ts';
 import { streamPhoto } from './photos.ts';
 import type { Reply } from './reply.ts';
@@ -195,7 +203,15 @@ export async function startFakeSource(options: StartOptions = {}): Promise<FakeS
 		switch (reply.kind) {
 			case 'json': {
 				let body = reply.body;
-				if (drift && reply.listingKey !== undefined && reply.status === 200) {
+				if (drift && reply.listing && reply.status === 200) {
+					// A bare-array listing that grows an envelope.
+					body = { count: (body as unknown[]).length, results: body };
+				} else if (
+					drift &&
+					reply.listingKey !== undefined &&
+					reply.status === 200 &&
+					!Array.isArray(body)
+				) {
 					const renamed = reply.listingKey === 'results' ? 'data' : 'entries';
 					body = Object.fromEntries(
 						Object.entries(body).map(([k, v]) => [k === reply.listingKey ? renamed : k, v])
@@ -365,15 +381,36 @@ export async function startFakeSource(options: StartOptions = {}): Promise<FakeS
 			sessionActive[platform] &&
 			readCookie(req.headers.cookie, COOKIE_NAME) === SENTINELS.sessionCookie[platform];
 		if (!url.pathname.startsWith('/api/')) return handlePage(req, res, platform, url, authed);
+		// Photo URLs on both sites answer without a session and bounce to the photo host: Gaia's to
+		// a signed URL, AllTrails' only when the app key rides along.
+		const atPhoto =
+			platform === 'alltrails'
+				? allTrailsPhotoRedirect(alltrails!, envs.alltrails, url.pathname, url.searchParams)
+				: null;
+		if (atPhoto && 'status' in atPhoto) {
+			req.resume();
+			return sendJson(res, atPhoto.status, { errors: [{ code: 'missing_key' }] }, head);
+		}
+		const photoUrl =
+			platform === 'gaiagps'
+				? gaiaPhotoRedirect(gaia!, envs.gaiagps, url.pathname)
+				: (atPhoto?.location ?? null);
+		if (photoUrl) {
+			req.resume();
+			res.writeHead(302, {
+				Location: photoUrl,
+				'Content-Length': '0',
+				'Cache-Control': 'no-store'
+			});
+			res.end();
+			return;
+		}
 		if (!authed) {
 			req.resume();
 			if (platform === 'gaiagps') {
-				return sendJson(
-					res,
-					401,
-					{ detail: 'Authentication credentials were not provided.' },
-					head
-				);
+				// The account endpoint answers anonymously; everything else is a bare 403.
+				if (url.pathname === '/api/v3/user/') return sendJson(res, 200, GAIA_ANONYMOUS_USER, head);
+				return sendText(res, 403, 'text/html; charset=utf-8', '', head);
 			}
 			res.writeHead(302, {
 				Location: '/login',
@@ -383,12 +420,10 @@ export async function startFakeSource(options: StartOptions = {}): Promise<FakeS
 			res.end();
 			return;
 		}
-		const apiReq = { method, path: url.pathname, query: url.searchParams };
+		const apiReq = { method, path: url.pathname, query: url.searchParams, headers: req.headers };
 		const reply =
 			platform === 'gaiagps'
-				? url.pathname.startsWith('/api/v3/')
-					? handleGaiaApi(gaia!, envs.gaiagps, ds, apiReq)
-					: ({ kind: 'json', status: 404, body: { detail: 'Not found.' } } satisfies Reply)
+				? handleGaiaApi(gaia!, apiReq)
 				: handleAllTrailsApi(alltrails!, ds, apiReq);
 		sendReply(res, reply, head, drift);
 	};
@@ -419,7 +454,12 @@ export async function startFakeSource(options: StartOptions = {}): Promise<FakeS
 		}
 		const { platform, cdn } = route;
 		const target = url.pathname + url.search;
-		const lane: Lane = cdn ? 'asset' : url.pathname.startsWith('/api/') ? 'api' : 'page';
+		// Gaia's photo redirects live under /api/ but are fetched as assets, not as API calls.
+		const photoRedirect =
+			/^\/api\/objects\/photo\/[^/]+\/image\//.test(url.pathname) ||
+			/^\/api\/alltrails\/(v3\/)?photos\/\d+\/image$/.test(url.pathname);
+		const lane: Lane =
+			cdn || photoRedirect ? 'asset' : url.pathname.startsWith('/api/') ? 'api' : 'page';
 		const start = performance.now();
 		const entry: LiveEntry = {
 			platform,
@@ -571,12 +611,11 @@ export async function startFakeSource(options: StartOptions = {}): Promise<FakeS
 		stats: (platform) => computeStats(entries, platform),
 		expected: (platform) => (platform === 'gaiagps' ? gaiaData.expected() : atData.expected()),
 		nativeGpx: (platform, kind, id) => {
+			// AllTrails has no GPX export to serve.
 			const line =
 				platform === 'gaiagps'
 					? (kind === 'track' ? gaiaData.tracks : gaiaData.routes).find((l) => l.id === String(id))
-					: (kind === 'track' ? atData.activities : atData.maps).find(
-							(l) => String(l.id) === String(id)
-						);
+					: undefined;
 			if (!line) throw new Error(`fake-source: no ${platform} ${kind} with id ${String(id)}`);
 			return line.gpx;
 		},

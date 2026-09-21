@@ -9,44 +9,18 @@ import type { BridgeRequest, SourceId } from '../shared/models';
 import {
 	BRIDGE_PORT_NAME,
 	BridgeEventSchema,
-	type BodyKind,
 	type BridgeCommand,
 	type BridgeEvent
 } from './bridge-protocol';
 
-export interface BridgeResponse {
-	status: number;
-	headers: Record<string, string>;
-	redirected: boolean;
-	url: string;
-	/** 'stream' when the body was delivered through onChunk. */
-	bodyKind: BodyKind | 'stream';
-	json?: unknown;
-}
+import {
+	BridgeNetworkError,
+	BridgeRefusedError,
+	TabLostError,
+	type BridgeResponse
+} from './bridge-types';
 
-/** The source tab closed, navigated, was discarded or reloaded. Recoverable. */
-export class TabLostError extends Error {
-	constructor(message = 'source tab lost') {
-		super(message);
-		this.name = 'TabLostError';
-	}
-}
-
-/** fetch() itself failed inside the tab: offline, DNS, dropped connection, system sleep. */
-export class BridgeNetworkError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = 'BridgeNetworkError';
-	}
-}
-
-/** The executor refused the request (origin not allowlisted). A bug, never retried. */
-export class BridgeRefusedError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = 'BridgeRefusedError';
-	}
-}
+export { BridgeNetworkError, BridgeRefusedError, TabLostError, type BridgeResponse };
 
 interface Pending {
 	resolve: (response: BridgeResponse) => void;
@@ -65,6 +39,8 @@ export interface BridgeTarget {
 
 const TAB_LOAD_TIMEOUT_MS = 30_000;
 const READY_TIMEOUT_MS = 10_000;
+/** How long a committed page may keep loading before the executor is injected anyway. */
+const SETTLE_MS = 4_000;
 
 export class SourceBridge {
 	private tabId: number | null = null;
@@ -74,7 +50,20 @@ export class SourceBridge {
 	private connecting: Promise<void> | null = null;
 	private closed = false;
 
-	constructor(private readonly target: BridgeTarget) {}
+	/** Why the source tab was unreachable or dropped, newest last. No URLs, names or IDs. */
+	readonly notes: string[] = [];
+
+	constructor(
+		private readonly target: BridgeTarget,
+		private readonly onNote: (note: string) => void = () => {}
+	) {}
+
+	private note(text: string): void {
+		this.notes.push(text);
+		if (this.notes.length > 12) this.notes.shift();
+		console.warn('MapLiberator source tab —', text);
+		this.onNote(text);
+	}
 
 	get sourceTabId(): number | null {
 		return this.tabId;
@@ -97,16 +86,23 @@ export class SourceBridge {
 	}
 
 	private async connect(): Promise<void> {
+		/** Why each attempt failed, for the error the user (and a bug report) ends up seeing. */
+		const failures: string[] = [];
+		const attach = async (tabId: number, where: string): Promise<boolean> => {
+			const failure = await this.tryAttach(tabId);
+			if (failure === null) return true;
+			failures.push(`${where}: ${failure} [${await this.describeTab(tabId)}]`);
+			return false;
+		};
+		const origin = new URL(this.target.bridgeUrl).origin;
 		// 1. Existing tab still on the source origin (e.g. the user just signed in there)?
-		if (this.tabId !== null && (await this.tryAttach(this.tabId))) return;
+		if (this.tabId !== null && (await attach(this.tabId, 'existing tab'))) return;
 		// 2. Existing tab that wandered elsewhere: bring it back to the parking page.
 		if (this.tabId !== null) {
 			try {
-				const loaded = waitForTabLoad(this.tabId);
-				loaded.catch(() => {});
 				await browser.tabs.update(this.tabId, { url: this.target.bridgeUrl });
-				await loaded;
-				if (await this.tryAttach(this.tabId)) return;
+				await waitForTabLoad(this.tabId, origin, true);
+				if (await attach(this.tabId, 'parking page')) return;
 			} catch {
 				// tab is gone
 			}
@@ -116,64 +112,96 @@ export class SourceBridge {
 		const tab = await browser.tabs.create({ url: this.target.bridgeUrl, active: false });
 		if (tab.id === undefined) throw new TabLostError('could not create source tab');
 		this.tabId = tab.id;
-		if (tab.status !== 'complete') await waitForTabLoad(tab.id);
+		await waitForTabLoad(tab.id, origin, false);
 		try {
 			await browser.tabs.update(tab.id, { autoDiscardable: false });
 		} catch {
 			// not supported everywhere; the Port disconnect path covers discards
 		}
-		if (!(await this.tryAttach(tab.id))) {
-			throw new TabLostError('could not reach the source tab');
+		if (await attach(tab.id, 'parking page')) return;
+		this.note(`could not attach: ${failures.join('; ')}`);
+		throw new TabLostError(`could not reach the source tab (${failures.join('; ')})`);
+	}
+
+	/** What the browser says about the tab and our access to it. No URLs, names or IDs. */
+	private async describeTab(tabId: number): Promise<string> {
+		const origin = new URL(this.target.bridgeUrl).origin;
+		let access = 'unknown';
+		try {
+			const held = await browser.permissions.contains({ origins: [`${origin}/*`] });
+			access = held ? 'held' : 'NOT held';
+		} catch {
+			// leave unknown
+		}
+		try {
+			const tab = await browser.tabs.get(tabId);
+			// The URL is only visible to us when the tab is on a site we may access.
+			const where =
+				tab.url === undefined ? 'hidden' : tab.url.startsWith(origin) ? 'on site' : 'elsewhere';
+			return `site access ${access}, tab ${tab.status ?? '?'}, url ${where}${tab.discarded ? ', discarded' : ''}${tab.active ? ', active' : ', background'}`;
+		} catch {
+			return `site access ${access}, tab gone`;
 		}
 	}
 
-	private async tryAttach(tabId: number): Promise<boolean> {
+	/** Resolves null once attached, otherwise a short reason (no URLs, names or IDs). */
+	private async tryAttach(tabId: number): Promise<string | null> {
 		try {
 			await browser.scripting.executeScript({
 				target: { tabId },
 				files: ['/source-executor.js']
 			});
-		} catch {
-			return false;
+		} catch (error) {
+			return `injection refused (${error instanceof Error ? error.message : String(error)})`;
 		}
 		let port: Browser.runtime.Port;
 		try {
 			port = browser.tabs.connect(tabId, { name: BRIDGE_PORT_NAME });
 		} catch {
-			return false;
+			return 'could not open a port';
 		}
-		const ready = await new Promise<boolean>((resolve) => {
-			const timer = setTimeout(() => resolve(false), READY_TIMEOUT_MS);
-			const finish = (ok: boolean) => {
+		const ready = await new Promise<string | null>((resolve) => {
+			const timer = setTimeout(() => resolve('executor did not answer'), READY_TIMEOUT_MS);
+			const finish = (failure: string | null) => {
 				clearTimeout(timer);
 				port.onMessage.removeListener(onMessage);
 				port.onDisconnect.removeListener(onDisconnect);
-				resolve(ok);
+				resolve(failure);
 			};
 			const onMessage = (message: unknown) => {
 				const event = BridgeEventSchema.safeParse(message);
-				if (event.success && event.data.type === 'ready') finish(true);
-				else if (event.success && event.data.type === 'refused') finish(false);
+				if (event.success && event.data.type === 'ready') finish(null);
+				else if (event.success && event.data.type === 'refused')
+					finish('executor refused the page');
 			};
-			const onDisconnect = () => finish(false);
+			const onDisconnect = () => finish('port closed before the executor answered');
 			port.onMessage.addListener(onMessage);
 			port.onDisconnect.addListener(onDisconnect);
 			port.postMessage({ type: 'init', adapter: this.target.id } satisfies BridgeCommand);
 		});
-		if (!ready) {
+		if (ready !== null) {
 			try {
 				port.disconnect();
 			} catch {
 				// already gone
 			}
-			return false;
+			return ready;
 		}
 		port.onMessage.addListener((message: unknown) => this.onMessage(message));
 		port.onDisconnect.addListener(() => {
-			if (this.port === port) this.dropPort();
+			if (this.port !== port) return;
+			// The tab navigated, reloaded, was discarded or closed underneath us.
+			const reason = browser.runtime.lastError?.message;
+			if (!this.closed) {
+				this.note(
+					`connection dropped with ${this.pending.size} request(s) in flight` +
+						(reason ? ` (${reason})` : '')
+				);
+			}
+			this.dropPort();
 		});
 		this.port = port;
-		return true;
+		return null;
 	}
 
 	private dropPort(): void {
@@ -301,43 +329,53 @@ export class SourceBridge {
 	}
 }
 
-function waitForTabLoad(tabId: number): Promise<void> {
+/**
+ * Resolves once the tab has really arrived on `origin`. A bare "status: complete" is not enough:
+ * a fresh tab reports it for its initial blank page, and a tab that was just told to navigate
+ * still reports it for the page it is about to leave. Injecting then fails with "Missing host
+ * permission for the tab". What cannot be faked is the tab's URL being visible to us and on the
+ * origin — the browser only shows it once that document has committed.
+ */
+function waitForTabLoad(tabId: number, origin: string, navigating: boolean): Promise<void> {
 	return new Promise((resolve, reject) => {
-		let settled = false;
+		const started = Date.now();
+		/** After `tabs.update`, the old page must be seen to go before the new one counts. */
+		let left = !navigating;
+		let arrivedAt: number | null = null;
 		const cleanup = () => {
-			settled = true;
 			clearTimeout(timer);
 			clearInterval(poll);
-			browser.tabs.onUpdated.removeListener(onUpdated);
 			browser.tabs.onRemoved.removeListener(onRemoved);
 		};
 		const timer = setTimeout(() => {
 			cleanup();
 			resolve(); // try to inject anyway; failure is handled by the caller
 		}, TAB_LOAD_TIMEOUT_MS);
-		const onUpdated = (id: number, info: { status?: string }) => {
-			if (id !== tabId || info.status !== 'complete') return;
-			cleanup();
-			resolve();
-		};
 		const onRemoved = (id: number) => {
 			if (id !== tabId) return;
 			cleanup();
 			reject(new TabLostError('source tab closed while loading'));
 		};
-		browser.tabs.onUpdated.addListener(onUpdated);
 		browser.tabs.onRemoved.addListener(onRemoved);
-		// The load may have finished before the listener was attached.
 		const poll = setInterval(() => {
 			browser.tabs.get(tabId).then(
 				(tab) => {
-					if (tab.status === 'complete' && !settled) {
+					const onSite = tab.url !== undefined && tab.url.startsWith(`${origin}/`);
+					// A navigation that never shows up as "loading" (served from cache) still counts
+					// after a moment.
+					if (!left && (tab.status === 'loading' || !onSite || Date.now() - started > 1500)) {
+						left = true;
+					}
+					if (!left || !onSite) return;
+					arrivedAt ??= Date.now();
+					// Heavy pages stay "loading" for a long time; the document is there well before.
+					if (tab.status === 'complete' || Date.now() - arrivedAt > SETTLE_MS) {
 						cleanup();
 						resolve();
 					}
 				},
 				() => {}
 			);
-		}, 500);
+		}, 150);
 	});
 }

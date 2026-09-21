@@ -1,0 +1,213 @@
+{
+	"maps": [
+		{
+			"id": 810001,
+			"name": "Morning loop / ridge ../summit",
+			"description": "Great morning. Saw two marmots.",
+			"presentationType": "track",
+			"slug": "track-810001",
+			"created_at": "2024-06-04T15:21:35Z",
+			"location": {
+				"city": null,
+				"country": "US",
+				"latitude": "36.77012",
+				"longitude": "-118.37044"
+			},
+			"trailId": null,
+			"activity": {
+				"uid": "hiking",
+				"name": "hiking"
+			},
+			"user": {
+				"id": 7001,
+				"username": "test-hiker",
+				"firstName": "Test",
+				"lastName": "Hiker",
+				"slug": "test-hiker"
+			},
+			"private": false,
+			"contentPrivacy": "urn:alltrails:visibility:public",
+			"summaryStats": {
+				"duration": 1434,
+				"distanceTotal": 2815.7,
+				"elevationGain": 48.2
+			},
+			"photoCount": 1,
+			"metadata": {
+				"created": "2024-06-04T15:21:35Z",
+				"updated": "2024-06-06T15:42:09Z",
+				"status": "A",
+				"cursor": "Yzo4MTAwMDE"
+			}
+		},
+		{
+			"id": 810002,
+			"name": "Sentier des Crêtes – Übergang à l’été",
+			"description": "Très venteux.",
+			"presentationType": "track",
+			"slug": "track-810002",
+			"created_at": "2024-06-08T14:46:22Z",
+			"location": {
+				"city": null,
+				"country": "US",
+				"latitude": "36.75533",
+				"longitude": "-118.35208"
+			},
+			"trailId": null,
+			"activity": {
+				"uid": "trail-running",
+				"name": "trail-running"
+			},
+			"user": {
+				"id": 7001,
+				"username": "test-hiker",
+				"firstName": "Test",
+				"lastName": "Hiker",
+				"slug": "test-hiker"
+			},
+			"private": true,
+			"contentPrivacy": "urn:alltrails:visibility:private",
+			"summaryStats": {
+				"duration": 830,
+				"distanceTotal": 1697.5,
+				"elevationGain": 50.1
+			},
+			"photoCount": 0,
+			"metadata": {
+				"created": "2024-06-08T14:46:22Z",
+				"updated": "2024-06-10T15:06:56Z",
+				"status": "A",
+				"cursor": "Yzo4MTAwMDI"
+			}
+		},
+		{
+			"id": 819001,
+			"name": "Club run with friends",
+			"description": "SENTINEL-OTHER-USER-DESCRIPTION",
+			"presentationType": "track",
+			"slug": "track-819001",
+			"created_at": "2024-06-09T15:21:35Z",
+			"location": {
+				"city": null,
+				"country": "US",
+				"latitude": "36.79121",
+				"longitude": "-118.33067"
+			},
+			"trailId": null,
+			"activity": {
+				"uid": "trail-running",
+				"name": "trail-running"
+			},
+			"user": {
+				"id": 7999,
+				"username": "someone-else@example.test",
+				"firstName": "Sentinel Otheruser",
+				"lastName": "X",
+				"slug": "someone-else"
+			},
+			"private": false,
+			"contentPrivacy": "urn:alltrails:visibility:public",
+			"summaryStats": {
+				"duration": 351,
+				"distanceTotal": 739.7,
+				"elevationGain": 19.5
+			},
+			"photoCount": 1,
+			"metadata": {
+				"created": "2024-06-09T15:21:35Z",
+				"updated": "2024-06-11T15:42:09Z",
+				"status": "A",
+				"cursor": "Yzo4MTkwMDE"
+			}
+		},
+		{
+			"id": 810003,
+			"name": "Evening walk",
+			"description": "Paused at the lake, so two segments.",
+			"presentationType": "track",
+			"slug": "track-810003",
+			"created_at": "2024-06-15T15:56:48Z",
+			"location": {
+				"city": null,
+				"country": "US",
+				"latitude": "36.76208",
+				"longitude": "-118.38115"
+			},
+			"trailId": null,
+			"activity": {
+				"uid": "walking",
+				"name": "walking"
+			},
+			"user": {
+				"id": 7001,
+				"username": "test-hiker",
+				"firstName": "Test",
+				"lastName": "Hiker",
+				"slug": "test-hiker"
+			},
+			"private": false,
+			"contentPrivacy": "urn:alltrails:visibility:public",
+			"summaryStats": {
+				"duration": 1559,
+				"distanceTotal": 1951.2,
+				"elevationGain": 49.9
+			},
+			"photoCount": 0,
+			"metadata": {
+				"created": "2024-06-15T15:56:48Z",
+				"updated": "2024-06-17T16:17:22Z",
+				"status": "A",
+				"cursor": "Yzo4MTAwMDM"
+			}
+		},
+		{
+			"id": 810004,
+			"name": "Evening walk",
+			"description": "",
+			"presentationType": "track",
+			"slug": "track-810004",
+			"created_at": "2024-06-16T16:32:01Z",
+			"location": {
+				"city": null,
+				"country": "US",
+				"latitude": "36.76251",
+				"longitude": "-118.38092"
+			},
+			"trailId": null,
+			"activity": {
+				"uid": "walking",
+				"name": "walking"
+			},
+			"user": {
+				"id": 7001,
+				"username": "test-hiker",
+				"firstName": "Test",
+				"lastName": "Hiker",
+				"slug": "test-hiker"
+			},
+			"private": false,
+			"contentPrivacy": "urn:alltrails:visibility:public",
+			"summaryStats": {
+				"duration": 332,
+				"distanceTotal": 714.3,
+				"elevationGain": 0
+			},
+			"photoCount": 0,
+			"metadata": {
+				"created": "2024-06-16T16:32:01Z",
+				"updated": "2024-06-18T16:52:35Z",
+				"status": "A",
+				"cursor": "Yzo4MTAwMDQ"
+			}
+		}
+	],
+	"meta": {
+		"status": "ok",
+		"items": 5
+	},
+	"pageInfo": {
+		"totalItemCount": 5,
+		"itemCount": 5,
+		"hasNextPage": false
+	}
+}

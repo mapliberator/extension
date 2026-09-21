@@ -1,11 +1,23 @@
 {
-	"user": {
-		"id": 7001,
-		"firstName": "Test",
-		"lastName": "Hiker",
-		"email": "me@example.test",
-		"slug": "test-hiker",
-		"metric": false
-	},
-	"csrfToken": "scrubbed"
+	"users": [
+		{
+			"id": 7001,
+			"username": "test-hiker",
+			"firstName": "Test",
+			"lastName": "Hiker",
+			"slug": "test-hiker",
+			"email": "me@example.test",
+			"referralCode": "scrubbed",
+			"metric": false,
+			"tracks": 4,
+			"maps": 3,
+			"photos": 3,
+			"lists": 0,
+			"favorites": 0
+		}
+	],
+	"meta": {
+		"status": "ok",
+		"items": 1
+	}
 }

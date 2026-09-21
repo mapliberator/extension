@@ -6,6 +6,8 @@ export default defineConfig({
 		environment: 'node',
 		include: ['tests/*.test.ts'],
 		testTimeout: 60_000,
+		// Lets the fake-source streaming test collect garbage before it measures memory.
+		execArgv: ['--expose-gc'],
 		allowOnly: false
 	}
 });

@@ -34,36 +34,62 @@ try {
 		JSON.parse(JSON.stringify(value).replaceAll(`:${fake.port}`, ':4610')) as T;
 
 	const gaia = fixPort(fake.objects('gaiagps'));
-	const gaiaListing = (results: unknown[]) => ({
-		count: results.length,
-		next: null,
-		previous: null,
-		results
-	});
-	write('gaia', 'me', gaia.me);
-	write('gaia', 'track-listing', gaiaListing(gaia.tracks.map((track) => track.summary)));
+	// Listings are bare arrays (docs/phase0-findings.md).
+	const summaries = (items: { summary: unknown }[]) => items.map((item) => item.summary);
+	write('gaia', 'user', gaia.me);
+	write('gaia', 'track-listing', summaries(gaia.tracks));
 	write('gaia', 'track-detail', gaia.tracks[0]!.detail);
-	write('gaia', 'route-listing', gaiaListing(gaia.routes.map((route) => route.summary)));
+	write(
+		'gaia',
+		'foreign-track-detail',
+		gaia.tracks.find((t) => t.summary.id === 'gt-9001')!.detail
+	);
+	write('gaia', 'route-listing', summaries(gaia.routes));
 	write('gaia', 'route-detail', gaia.routes[0]!.detail);
-	write('gaia', 'waypoint-listing', gaiaListing(gaia.waypoints));
-	write('gaia', 'area-listing', gaiaListing(gaia.areas));
-	write('gaia', 'photo-listing', gaiaListing(gaia.photos));
-	write('gaia', 'folder-listing', gaiaListing(gaia.folders));
+	write('gaia', 'waypoint-listing', summaries(gaia.waypoints));
+	write('gaia', 'area-listing', summaries(gaia.areas));
+	write('gaia', 'area-detail', gaia.areas[0]!.detail);
+	write('gaia', 'photo-listing', summaries(gaia.photos));
+	write('gaia', 'folder-listing', summaries(gaia.folders));
 
 	const alltrails = fixPort(fake.objects('alltrails'));
-	const atListing = (items: unknown[]) => ({ items, meta: { nextCursor: null } });
-	write('alltrails', 'me', alltrails.me);
+	// Envelopes as the real API sends them (docs/phase0-findings.md).
+	const page = (key: string, items: unknown[]) => ({
+		[key]: items,
+		meta: { status: 'ok', items: items.length },
+		pageInfo: { totalItemCount: items.length, itemCount: items.length, hasNextPage: false }
+	});
+	const one = (key: string, item: unknown) => ({ [key]: [item], meta: { status: 'ok', items: 1 } });
+	write('alltrails', 'me', one('users', alltrails.me));
 	write(
 		'alltrails',
-		'activities-listing',
-		atListing(alltrails.activities.map((activity) => activity.summary))
+		'tracks-listing',
+		page(
+			'maps',
+			alltrails.tracks.map((t) => t.summary)
+		)
 	);
-	write('alltrails', 'activity-detail', alltrails.activities[0]!.detail);
-	write('alltrails', 'maps-listing', atListing(alltrails.maps.map((map) => map.summary)));
-	write('alltrails', 'map-detail', alltrails.maps[0]!.detail);
-	write('alltrails', 'lists-listing', atListing(alltrails.lists));
-	write('alltrails', 'completed-listing', atListing(alltrails.completed));
-	write('alltrails', 'photos-listing', atListing(alltrails.photos));
+	write('alltrails', 'track-detail', one('maps', alltrails.tracks[0]!.detail));
+	write(
+		'alltrails',
+		'maps-listing',
+		page(
+			'maps',
+			alltrails.maps.map((m) => m.summary)
+		)
+	);
+	write('alltrails', 'map-detail', one('maps', alltrails.maps[0]!.detail));
+	write(
+		'alltrails',
+		'lists-listing',
+		page(
+			'lists',
+			alltrails.lists.map((l) => l.list)
+		)
+	);
+	write('alltrails', 'list-items', { listItems: alltrails.lists[0]!.items });
+	write('alltrails', 'trail', one('trails', alltrails.trails[0]));
+	write('alltrails', 'photos-listing', page('photos', alltrails.photos));
 } finally {
 	await fake.close();
 }

@@ -1,11 +1,12 @@
-/** Gaia-GPS-shaped dataset + API (`/api/v3`, page-numbered listings). */
+/**
+ * Gaia-GPS-shaped dataset + API. Shapes follow docs/phase0-findings.md: unpaginated
+ * `/api/objects/<type>/` listings, GeoJSON details, `/api/v3/user/` for the account.
+ */
 import {
 	BASE_EPOCH,
 	DAY,
 	NAMES,
-	PLATFORM_TRAILS,
-	isoDate,
-	isoWithOffset,
+	isoUtc,
 	lineStats,
 	makeLine,
 	type Env,
@@ -14,26 +15,30 @@ import {
 } from './dataset.ts';
 import { buildGpx } from './gpx.ts';
 import type { PhotoMime, PhotoSpec } from './photos.ts';
-import { json, parseIntParam, type ApiRequest, type Reply } from './reply.ts';
+import { json, type ApiRequest, type Reply } from './reply.ts';
 import { SENTINELS } from './sentinels.ts';
 import type { ExpectedArchive, GaiaObjects, Json } from './types.ts';
 
-const ME_ID = 'gu-1001';
-const OTHER_ID = 'gu-2002';
+const ME_ID = 1001;
+const OTHER_ID = 2002;
+const ME_NAME = 'Test H.';
 const GPX_NS = { prefix: 'gaia', uri: 'https://www.gaiagps.com/gpx/extensions/1' };
-const CREATOR = 'GaiaGPS (fake-source)';
+const CREATOR = 'GaiaGPS';
 
-export interface GaiaLine {
+/** A listed object: what the listing shows, what the detail endpoint returns, and who owns it. */
+export interface GaiaItem {
 	id: string;
 	own: boolean;
+	deleted: boolean;
 	summary: Json;
 	detail: Json;
+}
+
+export interface GaiaLine extends GaiaItem {
 	gpx: Buffer;
 }
 
-export interface GaiaPhoto {
-	json: Json;
-	own: boolean;
+export interface GaiaPhoto extends GaiaItem {
 	spec: PhotoSpec;
 }
 
@@ -41,9 +46,9 @@ export interface GaiaData {
 	me: Json;
 	tracks: GaiaLine[];
 	routes: GaiaLine[];
-	waypoints: Json[];
-	areas: Json[];
-	folders: Json[];
+	waypoints: GaiaItem[];
+	areas: GaiaItem[];
+	folders: GaiaItem[];
 	photoCount: number;
 	photoAt(index: number): GaiaPhoto;
 	photoById(id: string): GaiaPhoto | undefined;
@@ -56,43 +61,78 @@ interface CommonSpec {
 	title: string;
 	notes?: string;
 	own?: boolean;
+	deleted?: boolean;
 	/** Days after BASE_EPOCH. */
 	day: number;
-	offsetMinutes?: number;
 	public?: boolean;
-	tags?: string[];
 }
 
-function created(spec: CommonSpec): number {
+function created(spec: { day: number }): number {
 	return BASE_EPOCH + spec.day * DAY + (spec.day % 7) * 1733;
 }
 
+/** `2024-06-05T15:26:30.000000` — microseconds and no zone, as the real listings have it. */
+function serverStamp(epochSeconds: number): string {
+	return `${isoUtc(epochSeconds).slice(0, 19)}.000000`;
+}
+
+function slug(title: string): string {
+	return (
+		title
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/^-|-$/g, '') || 'untitled'
+	);
+}
+
+/** Fields every listed object carries. Listings say nothing about who owns the object. */
 function common(spec: CommonSpec): Json {
 	const own = spec.own !== false;
 	const t = created(spec);
-	const out: Json = {
+	return {
 		id: spec.id,
+		updated_date: isoUtc(t + 3 * DAY + 4521),
+		time_created: isoUtc(t),
+		last_updated_on_server: serverStamp(t + 3 * DAY + 4530),
+		deleted: spec.deleted === true,
 		title: spec.title,
 		notes: own ? (spec.notes ?? '') : SENTINELS.otherUserDescription,
-		time_created: isoWithOffset(t, spec.offsetMinutes),
-		updated_date: isoWithOffset(t + 3 * DAY + 4521, spec.offsetMinutes),
 		public: spec.public ?? false,
-		user_id: own ? ME_ID : OTHER_ID
+		folder: '',
+		folder_name: '',
+		path: slug(spec.title),
+		sync_to_mobile: null
 	};
-	if (!own) out.user_name = SENTINELS.otherUserName;
-	out.user_email = own ? SENTINELS.email : SENTINELS.otherUserEmail;
-	out.tags = spec.tags ?? [];
-	return out;
+}
+
+/** The owner block on detail responses: all of it is personal data that must not be archived. */
+function owner(env: Env, own: boolean): Json {
+	const id = own ? ME_ID : OTHER_ID;
+	const name = own ? ME_NAME : SENTINELS.otherUserName;
+	return {
+		user_displayname: name,
+		username: own ? SENTINELS.email : SENTINELS.otherUserEmail,
+		user_email: own ? SENTINELS.email : SENTINELS.otherUserEmail,
+		user_id: id,
+		created_by: {
+			id,
+			displayName: name,
+			link: `/profile/${id}/`,
+			image: `${env.origin}/profile/${id}/image/`
+		},
+		writable: own
+	};
 }
 
 interface LineSpecG extends CommonSpec {
 	activities: string[];
 	color?: string;
+	source?: string | null;
 	start: [number, number];
 	segments: number[];
 }
 
-function buildLine(kind: 'track' | 'route', spec: LineSpecG): GaiaLine {
+function buildLine(env: Env, kind: 'track' | 'route', spec: LineSpecG): GaiaLine {
 	const own = spec.own !== false;
 	const t = created(spec);
 	const segments: Pt[][] = makeLine({
@@ -105,26 +145,48 @@ function buildLine(kind: 'track' | 'route', spec: LineSpecG): GaiaLine {
 	});
 	const stats = lineStats(segments);
 	const first = segments[0]![0]!;
-	const summary: Json = { ...common(spec), activities: spec.activities, distance: stats.distance };
-	summary.total_ascent = stats.ascent;
-	if (kind === 'track') {
-		summary.total_time = stats.duration;
-		summary.color = spec.color ?? '#ff5a00';
-	}
-	summary.start_location = { latitude: first.lat, longitude: first.lon };
-	const detail: Json = {
-		...summary,
+	const color = spec.color ?? '#ff5a00';
+	const summary: Json = {
+		...common(spec),
+		distance: stats.distance,
+		total_ascent: stats.ascent,
+		total_time: kind === 'track' ? stats.duration : 0,
+		activities: spec.activities,
+		privacy_level: null,
+		source: spec.source === undefined ? (kind === 'track' ? 'iPhone X' : '') : spec.source
+	};
+	const { folder: _folder, folder_name: _folderName, path: _path, ...listed } = summary;
+	const feature: Json = {
+		type: 'Feature',
+		id: spec.id,
+		properties: {
+			...listed,
+			db_insert_date: isoUtc(t + 60),
+			color,
+			hexcolor: color,
+			is_active: true,
+			revision: 7,
+			track_type: kind === 'track' ? '' : 'route',
+			routing_mode: kind === 'track' ? null : 'snap-hiking',
+			cover_photo_id: null,
+			total_descent: stats.ascent,
+			folder: null,
+			preferred_link: `/datasummary/${kind}/${spec.id}/`,
+			...owner(env, own),
+			latitude: first.lat,
+			longitude: first.lon
+		},
+		style: { stroke: color },
 		geometry: {
 			type: 'MultiLineString',
+			// Routes carry a zero where tracks carry epoch seconds.
 			coordinates: segments.map((seg) =>
-				seg.map((p) => (kind === 'track' ? [p.lon, p.lat, p.ele, p.time] : [p.lon, p.lat, p.ele]))
+				seg.map((p) => [p.lon, p.lat, p.ele, kind === 'track' ? p.time : 0])
 			)
 		}
 	};
-	const extensions: [string, string][] = [];
-	if (kind === 'track') extensions.push(['color', spec.color ?? '#ff5a00']);
-	for (const a of spec.activities) extensions.push(['activity', a]);
-	extensions.push(['public', String(spec.public ?? false)]);
+	const detail: Json = { type: 'FeatureCollection', id: spec.id, features: [feature] };
+	const extensions: [string, string][] = [['color', color]];
 	const gpx = buildGpx({
 		creator: CREATOR,
 		ns: GPX_NS,
@@ -132,23 +194,67 @@ function buildLine(kind: 'track' | 'route', spec: LineSpecG): GaiaLine {
 		name: spec.title,
 		desc: own ? spec.notes : SENTINELS.otherUserDescription,
 		time: t,
-		author: own ? undefined : SENTINELS.otherUserName,
 		extensions,
 		segments,
 		digits: 6
 	});
-	return { id: spec.id, own, summary, detail, gpx };
+	return { id: spec.id, own, deleted: spec.deleted === true, summary, detail, gpx };
 }
 
 function waypoint(
-	spec: CommonSpec & { icon: string; at: [lon: number, lat: number, ele: number] }
-): Json {
-	return { ...common(spec), icon: spec.icon, geometry: { type: 'Point', coordinates: spec.at } };
+	env: Env,
+	spec: CommonSpec & { icon: string; at: [lon: number, lat: number, ele: number | null] }
+): GaiaItem {
+	const own = spec.own !== false;
+	const [lon, lat, ele] = spec.at;
+	const marker = { marker_type: 'pin', marker_color: '#2d5bff', marker_decoration: null };
+	const summary: Json = {
+		...common(spec),
+		icon: spec.icon,
+		...marker,
+		// One-element arrays: that is what the real listing returns.
+		latitude: [lat],
+		longitude: [lon],
+		cover_photo_id: null
+	};
+	const detail: Json = {
+		type: 'Feature',
+		id: spec.id,
+		geometry: { type: 'Point', coordinates: [lon, lat] },
+		properties: {
+			id: spec.id,
+			updated_date: summary.updated_date,
+			time_created: summary.time_created,
+			deleted: summary.deleted,
+			title: spec.title,
+			public: summary.public,
+			is_active: true,
+			icon: spec.icon,
+			revision: 3,
+			notes: summary.notes,
+			latitude: lat,
+			longitude: lon,
+			elevation: ele,
+			track_id: '',
+			folder: null,
+			...marker,
+			photos: [],
+			created_by: owner(env, own).created_by,
+			writable: own
+		}
+	};
+	return { id: spec.id, own, deleted: spec.deleted === true, summary, detail };
 }
 
+/**
+ * An area is a track-shaped object whose geometry is a polygon: the listing has the line fields
+ * (all zero) and no size, the detail is a FeatureCollection like a track's.
+ */
 function area(
+	env: Env,
 	spec: CommonSpec & { center: [lat: number, lon: number]; radius: number; n: number }
-): Json {
+): GaiaItem {
+	const own = spec.own !== false;
 	const [lat0, lon0] = spec.center;
 	const ring: [number, number][] = [];
 	for (let i = 0; i < spec.n; i++) {
@@ -160,69 +266,80 @@ function area(
 		]);
 	}
 	ring.push([ring[0]![0], ring[0]![1]]);
-	// Shoelace on a local tangent plane.
-	const mLat = 111_320;
-	const mLon = 111_320 * Math.cos((lat0 * Math.PI) / 180);
-	let twice = 0;
-	for (let i = 0; i + 1 < ring.length; i++) {
-		const [x1, y1] = ring[i]!;
-		const [x2, y2] = ring[i + 1]!;
-		twice += x1 * mLon * (y2 * mLat) - x2 * mLon * (y1 * mLat);
-	}
-	return {
+	const summary: Json = {
 		...common(spec),
-		area: Math.round(Math.abs(twice) / 2),
-		geometry: { type: 'Polygon', coordinates: [ring] }
+		distance: 0,
+		total_ascent: 0,
+		total_time: 0,
+		activities: [],
+		privacy_level: 'private',
+		source: null
 	};
+	const { folder: _folder, folder_name: _folderName, path: _path, ...listed } = summary;
+	const feature: Json = {
+		type: 'Feature',
+		id: spec.id,
+		properties: {
+			...listed,
+			color: '#ff5a00',
+			hexcolor: '#ff5a00',
+			track_type: 'polygon',
+			routing_mode: null,
+			preferred_link: `/public/${spec.id}`,
+			...owner(env, own)
+		},
+		style: { stroke: '#ff5a00' },
+		// Three numbers per vertex, the last one an elevation.
+		geometry: { type: 'Polygon', coordinates: [ring.map(([lon, lat]) => [lon, lat, 0])] }
+	};
+	const detail: Json = { type: 'FeatureCollection', id: spec.id, features: [feature] };
+	return { id: spec.id, own, deleted: spec.deleted === true, summary, detail };
 }
 
 interface PhotoSpecG extends CommonSpec {
-	caption: string;
-	takenDay: number | null;
-	at: [lat: number, lon: number] | null;
-	attached: { type: 'track' | 'route' | 'waypoint'; id: string } | null;
+	/** Every Gaia photo hangs off a waypoint. */
+	waypoint: { id: string; name: string; at: [lat: number, lon: number] };
 	mime: PhotoMime;
 	size: number;
 }
 
 function photo(env: Env, spec: PhotoSpecG): GaiaPhoto {
-	return {
-		own: spec.own !== false,
-		spec: { key: `gaia/${spec.id}/full`, size: spec.size, mime: spec.mime },
-		json: {
-			...common(spec),
-			caption: spec.caption,
-			taken_at:
-				spec.takenDay === null
-					? null
-					: isoWithOffset(BASE_EPOCH + spec.takenDay * DAY + 977, spec.offsetMinutes),
-			latitude: spec.at ? spec.at[0] : null,
-			longitude: spec.at ? spec.at[1] : null,
-			fullsize_url: `${env.cdnOrigin}/photos/${spec.id}/full`,
-			attached_to: spec.attached
+	const image = (size: string): string =>
+		`${env.origin}/api/objects/photo/${spec.id}/image/${size}/`;
+	const summary: Json = {
+		...common(spec),
+		thumbnail: image('100'),
+		scaled: image('1000'),
+		waypoint_id: spec.waypoint.id,
+		waypoint_name: spec.waypoint.name
+	};
+	const detail: Json = {
+		type: 'Feature',
+		id: spec.id,
+		geometry: { type: 'Point', coordinates: [spec.waypoint.at[1], spec.waypoint.at[0]] },
+		properties: {
+			id: spec.id,
+			updated_date: summary.updated_date,
+			time_created: summary.time_created,
+			deleted: summary.deleted,
+			title: spec.title,
+			revision: 1,
+			notes: summary.notes,
+			elevation: 0,
+			waypoint_id: spec.waypoint.id,
+			thumbnail_url: image('100'),
+			web_url: image('500'),
+			scaled_url: image('1000'),
+			fullsize_url: image('full')
 		}
 	};
-}
-
-function savedHike(
-	env: Env,
-	id: string,
-	trailIndex: number,
-	annotations: {
-		user_notes: string | null;
-		completed_on: string | null;
-		user_rating: number | null;
-	}
-): Json {
-	const trail = PLATFORM_TRAILS[trailIndex]!;
 	return {
-		id,
-		name: trail.name,
-		url: `${env.origin}/hike/${id}`,
-		trailhead: { latitude: trail.trailhead[0], longitude: trail.trailhead[1] },
-		description: `${SENTINELS.trailDescription} (${trail.name})`,
-		geometry: { type: 'LineString', coordinates: trail.geometry.map(([lat, lon]) => [lon, lat]) },
-		...annotations
+		id: spec.id,
+		own: true,
+		deleted: spec.deleted === true,
+		summary,
+		detail,
+		spec: { key: `gaia/${spec.id}/full`, size: spec.size, mime: spec.mime }
 	};
 }
 
@@ -231,79 +348,137 @@ interface FolderSpec {
 	name: string;
 	notes?: string;
 	parent?: string | null;
+	children?: string[];
 	day: number;
 	shared?: boolean;
+	deleted?: boolean;
 	tracks?: string[];
 	routes?: string[];
 	waypoints?: string[];
 	areas?: string[];
-	saved_hikes?: Json[];
 }
 
-function folder(spec: FolderSpec): Json {
+function folder(spec: FolderSpec): GaiaItem {
 	const t = BASE_EPOCH + spec.day * DAY + 301;
 	const shared = spec.shared === true;
-	return {
-		id: spec.id,
-		name: spec.name,
-		notes: shared ? SENTINELS.otherUserDescription : (spec.notes ?? ''),
-		parent: spec.parent ?? null,
-		time_created: isoWithOffset(t),
-		updated_date: isoWithOffset(t + 5 * DAY + 86),
-		user_id: shared ? OTHER_ID : ME_ID,
-		user_email: shared ? SENTINELS.otherUserEmail : SENTINELS.email,
-		shared_by: shared ? { name: SENTINELS.otherUserName, email: SENTINELS.otherUserEmail } : null,
+	const notes = shared ? SENTINELS.otherUserDescription : (spec.notes ?? '');
+	const members = {
 		tracks: spec.tracks ?? [],
 		routes: spec.routes ?? [],
-		waypoints: spec.waypoints ?? [],
 		areas: spec.areas ?? [],
-		saved_hikes: spec.saved_hikes ?? []
+		waypoints: spec.waypoints ?? []
 	};
+	const summary: Json = {
+		id: spec.id,
+		updated_date: isoUtc(t + 5 * DAY + 86),
+		time_created: isoUtc(t),
+		last_updated_on_server: serverStamp(t + 5 * DAY + 90),
+		deleted: spec.deleted === true,
+		title: spec.name,
+		public: false,
+		revision: 4,
+		notes,
+		...members,
+		maps: [],
+		mapSources: [],
+		children: spec.children ?? [],
+		date_group: '',
+		cover_photo_id: null,
+		path: slug(spec.name),
+		imported: null,
+		folder: null,
+		is_shared: shared,
+		access: shared ? 'read' : 'owner',
+		sync_to_mobile: null,
+		preferred_link: `/datasummary/folder/${spec.id}/`,
+		parent: spec.parent ?? null,
+		folder_name: null,
+		writable: !shared
+	};
+	const stub = (id: string): Json => ({ id, title: id, deleted: false, public: false });
+	const detail: Json = {
+		type: 'FeatureCollection',
+		id: spec.id,
+		properties: {
+			id: spec.id,
+			// `name` here, `title` in the listing — as on the real API.
+			name: spec.name,
+			updated_date: summary.updated_date,
+			time_created: summary.time_created,
+			notes,
+			deleted: summary.deleted,
+			public: false,
+			tracks: members.tracks.map(stub),
+			routes: members.routes.map(stub),
+			areas: members.areas.map(stub),
+			waypoints: members.waypoints.map(stub),
+			maps: [],
+			mapSources: [],
+			folders: (spec.children ?? []).map(stub),
+			trackstats: {}
+		},
+		features: []
+	};
+	return { id: spec.id, own: !shared, deleted: spec.deleted === true, summary, detail };
 }
 
 const ME: Json = {
 	id: ME_ID,
-	display_name: 'Test H.',
+	display_name: ME_NAME,
+	username: SENTINELS.email,
 	email: SENTINELS.email,
-	csrf_token: SENTINELS.csrfToken,
-	units: 'imperial'
+	first_name: 'Test',
+	last_name: 'Hiker',
+	is_authenticated: true,
+	distance_units: 'imperial',
+	didomi_auth: { id: 'didomi-1001', algorithm: 'hmac-sha256', digest: SENTINELS.csrfToken }
 };
 
+/** What `/api/v3/user/` answers without a session: 200, not an error. */
+export const GAIA_ANONYMOUS_USER: Json = { id: null, display_name: '', is_authenticated: false };
+
 function finish(
+	env: Env,
 	parts: Omit<GaiaData, 'expected' | 'objects' | 'me'>,
 	collections: number
 ): GaiaData {
 	const allPhotos = (): GaiaPhoto[] =>
 		Array.from({ length: parts.photoCount }, (_, i) => parts.photoAt(i));
-	const ownIds = (items: Json[]): string[] =>
-		items.filter((o) => o.user_id === ME_ID).map((o) => String(o.id));
+	const exported = (items: GaiaItem[]): string[] =>
+		items.filter((item) => item.own && !item.deleted).map((item) => item.id);
+	const pair = ({ summary, detail }: GaiaItem) => ({ summary, detail });
 	return {
 		me: ME,
 		...parts,
 		expected(): ExpectedArchive {
 			const ids = {
-				tracks: parts.tracks.filter((t) => t.own).map((t) => t.id),
-				routes: parts.routes.filter((r) => r.own).map((r) => r.id),
-				waypoints: ownIds(parts.waypoints),
-				areas: ownIds(parts.areas),
-				photos: ownIds(allPhotos().map((p) => p.json))
+				tracks: exported(parts.tracks),
+				routes: exported(parts.routes),
+				waypoints: exported(parts.waypoints),
+				areas: exported(parts.areas),
+				photos: exported(allPhotos())
 			};
+			// Other users' lines filed in one of my folders: they come out as references.
 			const references: ExpectedArchive['references'] = [];
-			for (const f of parts.folders) {
-				if (f.user_id !== ME_ID) continue;
-				for (const hike of f.saved_hikes as Json[]) {
-					if (references.some((r) => r.sourceId === hike.id)) continue;
-					const th = hike.trailhead as { latitude: number; longitude: number };
+			for (const kind of ['track', 'route'] as const) {
+				const lines = kind === 'track' ? parts.tracks : parts.routes;
+				const key = kind === 'track' ? 'tracks' : 'routes';
+				for (const line of lines.filter((l) => !l.own && !l.deleted)) {
+					const filed = parts.folders.some(
+						(f) => f.own && !f.deleted && (f.summary[key] as string[]).includes(line.id)
+					);
+					if (!filed) continue;
+					const properties = (line.detail.features as Json[])[0]!.properties as Json;
 					references.push({
-						name: String(hike.name),
-						url: String(hike.url),
-						sourceId: String(hike.id),
-						coordinate: [th.longitude, th.latitude]
+						name: String(line.summary.title),
+						url: `${env.origin}/datasummary/${kind}/${line.id}/`,
+						sourceId: line.id,
+						coordinate: [Number(properties.longitude), Number(properties.latitude)]
 					});
 				}
 			}
 			return {
-				account: { id: ME_ID, displayName: 'Test H.' },
+				account: { id: String(ME_ID), displayName: ME_NAME },
 				counts: {
 					tracks: ids.tracks.length,
 					routes: ids.routes.length,
@@ -319,12 +494,12 @@ function finish(
 		objects(): GaiaObjects {
 			return {
 				me: ME,
-				tracks: parts.tracks.map(({ summary, detail }) => ({ summary, detail })),
-				routes: parts.routes.map(({ summary, detail }) => ({ summary, detail })),
-				waypoints: parts.waypoints,
-				areas: parts.areas,
-				photos: allPhotos().map((p) => p.json),
-				folders: parts.folders
+				tracks: parts.tracks.map(pair),
+				routes: parts.routes.map(pair),
+				waypoints: parts.waypoints.map(pair),
+				areas: parts.areas.map(pair),
+				photos: allPhotos().map(pair),
+				folders: parts.folders.map(pair)
 			};
 		}
 	};
@@ -332,18 +507,17 @@ function finish(
 
 function buildSmall(env: Env): GaiaData {
 	const tracks = [
-		buildLine('track', {
+		buildLine(env, 'track', {
 			id: 'gt-3001',
 			title: NAMES.slashes,
 			notes: 'Sunrise lap before work. Windy on top.',
 			day: 0,
-			tags: ['sierra', 'loop'],
 			activities: ['hiking'],
 			color: '#ff0000',
 			start: [36.578581, -118.292288],
 			segments: [180]
 		}),
-		buildLine('track', {
+		buildLine(env, 'track', {
 			id: 'gt-3002',
 			title: NAMES.emoji,
 			day: 3,
@@ -352,19 +526,17 @@ function buildSmall(env: Env): GaiaData {
 			start: [36.561204, -118.301977],
 			segments: [64]
 		}),
-		buildLine('track', {
+		buildLine(env, 'track', {
 			id: 'gt-3003',
 			title: NAMES.accents,
 			notes: 'Déjeuner au col — très beau. <3 & "quotes"',
 			day: 9,
-			offsetMinutes: 120,
 			public: true,
-			tags: ['été'],
 			activities: ['hiking'],
 			start: [36.590115, -118.270843],
 			segments: [240]
 		}),
-		buildLine('track', {
+		buildLine(env, 'track', {
 			id: 'gt-9001',
 			title: 'Shared ridge run',
 			own: false,
@@ -374,7 +546,7 @@ function buildSmall(env: Env): GaiaData {
 			start: [36.602331, -118.251092],
 			segments: [48]
 		}),
-		buildLine('track', {
+		buildLine(env, 'track', {
 			id: 'gt-3004',
 			title: NAMES.long,
 			notes: 'Long day.',
@@ -384,7 +556,7 @@ function buildSmall(env: Env): GaiaData {
 			start: [36.553017, -118.313452],
 			segments: [300]
 		}),
-		buildLine('track', {
+		buildLine(env, 'track', {
 			id: 'gt-3005',
 			title: NAMES.duplicate,
 			day: 20,
@@ -392,7 +564,7 @@ function buildSmall(env: Env): GaiaData {
 			start: [36.571839, -118.288014],
 			segments: [36]
 		}),
-		buildLine('track', {
+		buildLine(env, 'track', {
 			id: 'gt-3006',
 			title: NAMES.duplicate,
 			notes: 'Paused for dinner, so two segments.',
@@ -400,10 +572,20 @@ function buildSmall(env: Env): GaiaData {
 			activities: ['walking'],
 			start: [36.571902, -118.287655],
 			segments: [42, 55]
+		}),
+		buildLine(env, 'track', {
+			id: 'gt-3900',
+			title: 'Deleted track',
+			deleted: true,
+			day: 23,
+			activities: [],
+			source: null,
+			start: [36.571902, -118.287655],
+			segments: [12]
 		})
 	];
 	const routes = [
-		buildLine('route', {
+		buildLine(env, 'route', {
 			id: 'gr-4001',
 			title: 'Whitney Portal to Lone Pine Lake',
 			notes: 'Planned for August.',
@@ -412,16 +594,15 @@ function buildSmall(env: Env): GaiaData {
 			start: [36.586912, -118.240031],
 			segments: [120]
 		}),
-		buildLine('route', {
+		buildLine(env, 'route', {
 			id: 'gr-4002',
 			title: 'Plan B: Meysan Lakes?',
 			day: 5,
-			tags: ['plan-b'],
 			activities: ['hiking'],
 			start: [36.580127, -118.232945],
 			segments: [75]
 		}),
-		buildLine('route', {
+		buildLine(env, 'route', {
 			id: 'gr-9002',
 			title: 'Group route (shared)',
 			own: false,
@@ -431,17 +612,16 @@ function buildSmall(env: Env): GaiaData {
 			start: [36.610458, -118.262117],
 			segments: [40]
 		}),
-		buildLine('route', {
+		buildLine(env, 'route', {
 			id: 'gr-4003',
 			title: 'Übernachtung am See',
 			notes: 'Two-day variant.',
 			day: 12,
-			offsetMinutes: 120,
 			activities: ['backpacking'],
 			start: [36.566341, -118.329876],
 			segments: [210]
 		}),
-		buildLine('route', {
+		buildLine(env, 'route', {
 			id: 'gr-4004',
 			title: 'Bike shuttle',
 			day: 18,
@@ -451,32 +631,30 @@ function buildSmall(env: Env): GaiaData {
 		})
 	];
 	const waypoints = [
-		waypoint({
+		waypoint(env, {
 			id: 'gw-5001',
 			title: 'Camp & water cache',
 			notes: 'Flat spot, 3 tents max.',
 			day: 1,
-			tags: ['camp'],
 			icon: 'campsite',
 			at: [-118.291507, 36.577214, 3652.4]
 		}),
-		waypoint({
+		waypoint(env, {
 			id: 'gw-5002',
 			title: 'Trailhead parking',
 			day: 1,
 			icon: 'car',
 			at: [-118.239866, 36.586953, 2548.1]
 		}),
-		waypoint({
+		waypoint(env, {
 			id: 'gw-5003',
 			title: 'Café du Lac ☕',
 			notes: 'Open Thu–Sun.',
 			day: 9,
-			offsetMinutes: 120,
 			icon: 'food',
 			at: [-118.270412, 36.590633, 2710]
 		}),
-		waypoint({
+		waypoint(env, {
 			id: 'gw-5004',
 			title: 'Trailhead parking',
 			notes: 'Overflow lot.',
@@ -484,17 +662,25 @@ function buildSmall(env: Env): GaiaData {
 			icon: 'car',
 			at: [-118.241102, 36.585471, 2531.7]
 		}),
-		waypoint({
+		waypoint(env, {
 			id: 'gw-5005',
 			title: 'Summit',
 			day: 15,
 			public: true,
 			icon: 'peak',
 			at: [-118.292301, 36.578402, 4418.9]
+		}),
+		waypoint(env, {
+			id: 'gw-5900',
+			title: 'Old photo spot',
+			deleted: true,
+			day: 22,
+			icon: '',
+			at: [-118.288014, 36.571839, null]
 		})
 	];
 	const areas = [
-		area({
+		area(env, {
 			id: 'ga-6001',
 			title: 'Closure zone 2024',
 			notes: 'Per ranger station notice.',
@@ -503,26 +689,27 @@ function buildSmall(env: Env): GaiaData {
 			radius: 0.004,
 			n: 7
 		}),
-		area({
+		area(env, {
 			id: 'ga-6002',
 			title: 'Possible campsites',
 			day: 14,
-			tags: ['camp'],
 			center: [36.5921, -118.2688],
 			radius: 0.0015,
 			n: 5
 		})
 	];
+	const at = (id: string): PhotoSpecG['waypoint'] => {
+		const found = waypoints.find((w) => w.id === id)!;
+		const [lon, lat] = (found.detail.geometry as { coordinates: [number, number] }).coordinates;
+		return { id, name: String(found.summary.title), at: [lat, lon] };
+	};
 	const photos = [
 		photo(env, {
 			id: 'gp-7001',
 			title: 'IMG_2041.JPG',
-			notes: 'Alpenglow',
+			notes: 'Alpenglow from the ridge',
 			day: 0,
-			caption: 'Alpenglow from the ridge',
-			takenDay: 0,
-			at: [36.578944, -118.291873],
-			attached: { type: 'track', id: 'gt-3001' },
+			waypoint: at('gw-5005'),
 			mime: 'image/jpeg',
 			size: 48_213
 		}),
@@ -530,45 +717,34 @@ function buildSmall(env: Env): GaiaData {
 			id: 'gp-7002',
 			title: 'Screenshot: camp map',
 			day: 1,
-			caption: '',
-			takenDay: 1,
-			at: [36.577214, -118.291507],
-			attached: { type: 'waypoint', id: 'gw-5001' },
+			waypoint: at('gw-5001'),
 			mime: 'image/png',
 			size: 12_007
 		}),
 		photo(env, {
-			id: 'gp-9003',
-			title: 'Group shot',
-			own: false,
-			day: 11,
-			public: true,
-			caption: 'Everyone at the saddle',
-			takenDay: 11,
-			at: [36.602514, -118.250877],
-			attached: { type: 'track', id: 'gt-9001' },
+			id: 'gp-7900',
+			title: 'Deleted photo',
+			deleted: true,
+			day: 2,
+			waypoint: at('gw-5001'),
 			mime: 'image/jpeg',
-			size: 8_192
+			size: 5_000
 		}),
 		photo(env, {
 			id: 'gp-7003',
 			title: 'IMG_2077.HEIC',
+			notes: 'Lake, planned lunch stop',
 			day: 4,
-			caption: 'Lake, planned lunch stop',
-			takenDay: 4,
-			at: [36.586733, -118.240289],
-			attached: { type: 'route', id: 'gr-4001' },
+			waypoint: at('gw-5003'),
 			mime: 'image/heic',
 			size: 30_500
 		}),
+		// Hangs off a waypoint that has since been deleted: no place to attach it to.
 		photo(env, {
 			id: 'gp-7004',
 			title: 'IMG_2102.JPG',
 			day: 22,
-			caption: 'No location, no timestamp',
-			takenDay: null,
-			at: null,
-			attached: null,
+			waypoint: at('gw-5900'),
 			mime: 'image/jpeg',
 			size: 9_999
 		})
@@ -579,6 +755,7 @@ function buildSmall(env: Env): GaiaData {
 			name: 'Sierra 2024',
 			notes: 'Everything for the August trip.',
 			day: 0,
+			children: ['gf-8002'],
 			tracks: ['gt-3001', 'gt-3002'],
 			routes: ['gr-4001'],
 			waypoints: ['gw-5001', 'gw-5002'],
@@ -593,20 +770,9 @@ function buildSmall(env: Env): GaiaData {
 			routes: ['gr-4003'],
 			waypoints: ['gw-5003']
 		}),
-		folder({
-			id: 'gf-8003',
-			name: 'Wishlist',
-			day: 6,
-			tracks: ['gt-9001'],
-			saved_hikes: [
-				savedHike(env, 'gh-2101', 0, {
-					user_notes: 'Start before 7am; bring 3L of water.',
-					completed_on: isoDate(BASE_EPOCH + 30 * DAY),
-					user_rating: 5
-				}),
-				savedHike(env, 'gh-2102', 1, { user_notes: null, completed_on: null, user_rating: null })
-			]
-		}),
+		folder({ id: 'gf-8900', name: 'Deleted folder', deleted: true, day: 4, tracks: ['gt-3004'] }),
+		// Holds another user's track next to nothing else: it must come out as a reference.
+		folder({ id: 'gf-8003', name: 'Wishlist', day: 6, tracks: ['gt-9001'] }),
 		folder({
 			id: 'gf-9004',
 			name: 'Club outings',
@@ -616,8 +782,9 @@ function buildSmall(env: Env): GaiaData {
 			routes: ['gr-9002']
 		})
 	];
-	const byId = new Map(photos.map((p) => [String(p.json.id), p]));
+	const byId = new Map(photos.map((p) => [p.id, p]));
 	return finish(
+		env,
 		{
 			tracks,
 			routes,
@@ -636,7 +803,7 @@ const LARGE_PHOTO_BASE = 1_000_001;
 
 function buildLarge(env: Env, ds: ResolvedDataset): GaiaData {
 	const tracks = [
-		buildLine('track', {
+		buildLine(env, 'track', {
 			id: 'gt-3001',
 			title: 'Big trip, day 1',
 			notes: 'Lots of photos.',
@@ -645,7 +812,7 @@ function buildLarge(env: Env, ds: ResolvedDataset): GaiaData {
 			start: [36.578581, -118.292288],
 			segments: [200]
 		}),
-		buildLine('track', {
+		buildLine(env, 'track', {
 			id: 'gt-3002',
 			title: 'Big trip, day 2',
 			day: 1,
@@ -654,28 +821,44 @@ function buildLarge(env: Env, ds: ResolvedDataset): GaiaData {
 			segments: [150, 90]
 		})
 	];
+	const waypoints = [
+		waypoint(env, {
+			id: 'gw-5001',
+			title: 'Camp one',
+			day: 0,
+			icon: 'campsite',
+			at: [-118.291507, 36.577214, 3652.4]
+		}),
+		waypoint(env, {
+			id: 'gw-5002',
+			title: 'Camp two',
+			day: 1,
+			icon: 'campsite',
+			at: [-118.301977, 36.561204, 3301.2]
+		})
+	];
 	const photoAt = (i: number): GaiaPhoto => {
 		const id = `gp-${LARGE_PHOTO_BASE + i}`;
+		const camp = i % 2 === 0 ? 'Camp one' : 'Camp two';
 		return photo(env, {
 			id,
 			title: `IMG_${String(i + 1).padStart(5, '0')}.JPG`,
 			day: i % 2,
-			caption: '',
-			takenDay: i % 2,
-			at: [
-				Math.round((36.56 + ((i * 37) % 4000) / 1e5) * 1e6) / 1e6,
-				Math.round((-118.31 + ((i * 53) % 4000) / 1e5) * 1e6) / 1e6
-			],
-			attached: i % 3 === 2 ? null : { type: 'track', id: i % 3 === 0 ? 'gt-3001' : 'gt-3002' },
+			waypoint: {
+				id: i % 2 === 0 ? 'gw-5001' : 'gw-5002',
+				name: camp,
+				at: i % 2 === 0 ? [36.577214, -118.291507] : [36.561204, -118.301977]
+			},
 			mime: 'image/jpeg',
 			size: ds.photoBytes
 		});
 	};
 	return finish(
+		env,
 		{
 			tracks,
 			routes: [],
-			waypoints: [],
+			waypoints,
 			areas: [],
 			folders: [],
 			photoCount: ds.photos,
@@ -699,81 +882,59 @@ export function buildGaia(env: Env, ds: ResolvedDataset): GaiaData {
 
 const NOT_FOUND = json(404, { detail: 'Not found.' });
 
-function listing(
-	env: Env,
-	ds: ResolvedDataset,
-	req: ApiRequest,
-	count: number,
-	at: (index: number) => Json
-): Reply {
-	const page = parseIntParam(req.query.get('page'), 1);
-	const requested = parseIntParam(req.query.get('page_size'), 50);
-	if (!Number.isFinite(page) || page < 1) return json(404, { detail: 'Invalid page.' });
-	const size = Math.min(
-		Number.isFinite(requested) && requested >= 1 ? requested : 50,
-		ds.maxPageSize
-	);
-	const pages = Math.max(1, Math.ceil(count / size));
-	if (page > pages) return json(404, { detail: 'Invalid page.' });
-	const start = (page - 1) * size;
-	const results: Json[] = [];
-	for (let i = start; i < Math.min(start + size, count); i++) results.push(at(i));
-	const link = (p: number): string => `${env.origin}${req.path}?page=${p}&page_size=${size}`;
-	return {
-		kind: 'json',
-		status: 200,
-		listingKey: 'results',
-		body: {
-			count,
-			next: page < pages ? link(page + 1) : null,
-			previous: page > 1 ? link(page - 1) : null,
-			results
-		}
-	};
+/** The whole collection as one bare array — the real API does not paginate. */
+function listing(items: Json[]): Reply {
+	return { kind: 'json', status: 200, body: items, listing: true };
 }
 
-/** Authenticated `/api/v3/*` requests. */
-export function handleGaiaApi(
-	data: GaiaData,
-	env: Env,
-	ds: ResolvedDataset,
-	req: ApiRequest
-): Reply {
+/** Authenticated `/api/*` requests. */
+export function handleGaiaApi(data: GaiaData, req: ApiRequest): Reply {
 	if (req.method !== 'GET' && req.method !== 'HEAD')
 		return json(405, { detail: 'Method not allowed.' });
-	const rest = req.path.slice('/api/v3/'.length);
-	if (rest === 'me/' || rest === 'me') return json(200, data.me);
+	if (req.path === '/api/v3/user/') return json(200, data.me);
+	if (!req.path.startsWith('/api/objects/')) return NOT_FOUND;
+	const rest = req.path.slice('/api/objects/'.length);
 
-	const gpx = /^(track|route)\/([^/]+)\.gpx$/.exec(rest);
+	const gpx = /^(track|route)\/([^/]+)\.gpx\/?$/.exec(rest);
 	if (gpx) {
 		const line = (gpx[1] === 'track' ? data.tracks : data.routes).find((l) => l.id === gpx[2]);
 		if (!line) return NOT_FOUND;
 		return { kind: 'bytes', status: 200, contentType: 'application/gpx+xml', body: line.gpx };
 	}
 
-	const m = /^(track|route|waypoint|area|photo|folder)(?:\/([^/]+))?\/?$/.exec(rest);
+	const m = /^(track|route|waypoint|area|photo|folder)\/(?:([^/]+)\/)?$/.exec(rest);
 	if (!m) return NOT_FOUND;
 	const type = m[1]!;
 	const id = m[2];
-	if (type === 'track' || type === 'route') {
-		const lines = type === 'track' ? data.tracks : data.routes;
-		if (id === undefined) return listing(env, ds, req, lines.length, (i) => lines[i]!.summary);
-		const line = lines.find((l) => l.id === id);
-		return line ? json(200, line.detail) : NOT_FOUND;
-	}
 	if (type === 'photo') {
 		if (id === undefined)
-			return listing(env, ds, req, data.photoCount, (i) => data.photoAt(i).json);
-		const p = data.photoById(id);
-		return p ? json(200, p.json) : NOT_FOUND;
+			return listing(Array.from({ length: data.photoCount }, (_, i) => data.photoAt(i).summary));
+		const found = data.photoById(id);
+		return found ? json(200, found.detail) : NOT_FOUND;
 	}
-	const items = type === 'waypoint' ? data.waypoints : type === 'area' ? data.areas : data.folders;
-	if (id === undefined) return listing(env, ds, req, items.length, (i) => items[i]!);
+	const items: GaiaItem[] = {
+		track: data.tracks,
+		route: data.routes,
+		waypoint: data.waypoints,
+		area: data.areas,
+		folder: data.folders
+	}[type]!;
+	if (id === undefined) return listing(items.map((item) => item.summary));
 	const item = items.find((o) => o.id === id);
-	return item ? json(200, item) : NOT_FOUND;
+	return item ? json(200, item.detail) : NOT_FOUND;
 }
 
-/** CDN host: `/photos/<id>/full`. */
+/**
+ * `/api/objects/photo/<id>/image/<size>/` on the site host: answers without a session and
+ * redirects to a signed, short-lived URL on the photo host.
+ */
+export function gaiaPhotoRedirect(data: GaiaData, env: Env, path: string): string | null {
+	const m = /^\/api\/objects\/photo\/([^/]+)\/image\/[^/]+\/$/.exec(path);
+	if (!m || !data.photoById(m[1]!)) return null;
+	return `${env.cdnOrigin}/photos/${m[1]!}/full?Expires=1790106526&Signature=${SENTINELS.photoSignature}`;
+}
+
+/** Photo host: `/photos/<id>/full`. */
 export function handleGaiaCdn(data: GaiaData, path: string): Reply | null {
 	const m = /^\/photos\/([^/]+)\/full$/.exec(path);
 	if (!m) return null;

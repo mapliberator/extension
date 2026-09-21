@@ -11,6 +11,8 @@ export interface BridgeRequest {
 	method: 'GET';
 	url: string;
 	accept: 'json' | 'text-stream';
+	/** Extra request headers the platform demands. Never session material. */
+	headers?: Record<string, string>;
 }
 
 export interface UserInfo {
@@ -132,7 +134,7 @@ export interface AdapterLimits {
 /** What adapters use to reach the platform. Pacing, retries and pauses live behind it. */
 export interface AdapterTransport {
 	/** GET a JSON document from one of the adapter's API origins. */
-	getJson(url: string): Promise<unknown>;
+	getJson(url: string, headers?: Record<string, string>): Promise<unknown>;
 }
 
 export interface MapSourceAdapter {
@@ -148,6 +150,8 @@ export interface MapSourceAdapter {
 	readonly loginUrl: string;
 	/** True when a (redirected) response URL is the platform's sign-in page. */
 	isLoginUrl(url: string): boolean;
+	/** A platform's own signed-out answer, when it is neither a 401 nor a redirect to sign-in. */
+	isSignedOut?(response: { status: number; bodyKind: string; json?: unknown }): boolean;
 	/** Extra `source.raw` keys to drop, on top of the shared scrub list. */
 	readonly rawScrubKeys: string[];
 	readonly notes: string[];

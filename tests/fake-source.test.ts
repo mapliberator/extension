@@ -25,7 +25,12 @@ interface HttpOptions {
 	body?: string;
 	/** Count the body instead of buffering it. */
 	discard?: boolean;
+	/** Extra request headers. `site()` adds the AllTrails app key unless this is given. */
+	headers?: Record<string, string>;
 }
+
+/** The fake site's app key, restated here on purpose. */
+const AT_KEY = 'fakeatkey0123456789abcdef0123456';
 
 const HOSTS: Record<Platform, string> = {
 	gaiagps: 'gaia.localhost',
@@ -40,7 +45,7 @@ function http(
 	opts: HttpOptions = {}
 ): Promise<HttpResult & { length: number }> {
 	return new Promise((resolve, reject) => {
-		const headers: Record<string, string> = { Host: `${host}:${fake.port}` };
+		const headers: Record<string, string> = { ...opts.headers, Host: `${host}:${fake.port}` };
 		if (typeof opts.cookie === 'string') headers.Cookie = opts.cookie;
 		if (opts.body !== undefined) headers['Content-Length'] = String(Buffer.byteLength(opts.body));
 		const req = httpRequest(
@@ -86,6 +91,7 @@ function cookieOf(fake: FakeSource, platform: Platform): string {
 /** Authenticated API/site request. */
 function site(fake: FakeSource, platform: Platform, path: string, opts: HttpOptions = {}) {
 	return http(fake, HOSTS[platform], path, {
+		headers: platform === 'alltrails' ? { 'X-AT-KEY': AT_KEY } : {},
 		...opts,
 		cookie: opts.cookie === false ? false : (opts.cookie ?? cookieOf(fake, platform))
 	});
@@ -96,27 +102,27 @@ function toPath(url: string): { host: string; path: string } {
 	return { host: u.hostname, path: u.pathname + u.search };
 }
 
-async function gaiaAll(fake: FakeSource, type: string, pageSize = 50): Promise<any[]> {
-	const out: any[] = [];
-	let path: string | null = `/api/v3/${type}/?page=1&page_size=${pageSize}`;
-	while (path) {
-		const page: any = (await site(fake, 'gaiagps', path)).json();
-		out.push(...page.results);
-		path = page.next ? toPath(page.next).path : null;
-	}
-	return out;
+/** Gaia listings are one bare array. */
+async function gaiaAll(fake: FakeSource, type: string): Promise<any[]> {
+	return (await site(fake, 'gaiagps', `/api/objects/${type}/`)).json();
 }
 
-async function atAll(fake: FakeSource, resource: string, limit = 50): Promise<any[]> {
+/** AllTrails listings: `{ <key>: [...], pageInfo }`, paged with `after`. */
+async function atAll(fake: FakeSource, resource: string, key: string, limit = 50): Promise<any[]> {
 	const out: any[] = [];
 	let cursor: string | null = null;
 	do {
-		const qs: string = `?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+		const separator = resource.includes('?') ? '&' : '?';
+		const after: string = cursor ? `&after=${encodeURIComponent(cursor)}` : '';
 		const page: any = (
-			await site(fake, 'alltrails', `/api/alltrails/v3/users/7001/${resource}${qs}`)
+			await site(
+				fake,
+				'alltrails',
+				`/api/alltrails/users/7001/${resource}${separator}limit=${limit}${after}`
+			)
 		).json();
-		out.push(...page.items);
-		cursor = page.meta.nextCursor;
+		out.push(...page[key]);
+		cursor = page.pageInfo.hasNextPage ? page.pageInfo.nextCursor : null;
 	} while (cursor);
 	return out;
 }
@@ -160,36 +166,39 @@ describe('fake-source (small dataset)', () => {
 	it('routes by Host and sends no CORS headers', async () => {
 		const unknown = await http(fake, 'example.com', '/');
 		expect(unknown.status).toBe(404);
-		const me = await site(fake, 'gaiagps', '/api/v3/me/');
+		const me = await site(fake, 'gaiagps', '/api/v3/user/');
 		expect(me.status).toBe(200);
 		expect(Object.keys(me.headers).some((h) => h.startsWith('access-control-'))).toBe(false);
 		// AllTrails paths do not exist on the Gaia host and vice versa.
-		expect((await site(fake, 'gaiagps', '/api/alltrails/v3/me')).status).toBe(404);
-		expect((await site(fake, 'alltrails', '/api/v3/me/')).status).toBe(404);
+		expect((await site(fake, 'gaiagps', '/api/alltrails/me')).status).toBe(404);
+		expect((await site(fake, 'alltrails', '/api/v3/user/')).status).toBe(404);
 	});
 
 	describe('sessions', () => {
-		it('Gaia answers 401 JSON without a valid, active session', async () => {
-			const none = await site(fake, 'gaiagps', '/api/v3/track/', { cookie: false });
-			expect(none.status).toBe(401);
-			expect(none.json()).toEqual({ detail: 'Authentication credentials were not provided.' });
-			const wrong = await site(fake, 'gaiagps', '/api/v3/track/', { cookie: 'fs_session=nope' });
-			expect(wrong.status).toBe(401);
+		it('Gaia answers a bare 403 without a valid, active session', async () => {
+			const none = await site(fake, 'gaiagps', '/api/objects/track/', { cookie: false });
+			expect(none.status).toBe(403);
+			expect(none.headers['content-type']).toContain('text/html');
+			expect(none.body).toHaveLength(0);
+			const wrong = await site(fake, 'gaiagps', '/api/objects/track/', {
+				cookie: 'fs_session=nope'
+			});
+			expect(wrong.status).toBe(403);
 			// The other platform's cookie is not valid here.
-			const cross = await site(fake, 'gaiagps', '/api/v3/me/', {
+			const cross = await site(fake, 'gaiagps', '/api/objects/track/', {
 				cookie: cookieOf(fake, 'alltrails')
 			});
-			expect(cross.status).toBe(401);
+			expect(cross.status).toBe(403);
 
 			fake.logout('gaiagps');
-			expect((await site(fake, 'gaiagps', '/api/v3/me/')).status).toBe(401);
-			expect((await site(fake, 'alltrails', '/api/alltrails/v3/me')).status).toBe(200);
+			expect((await site(fake, 'gaiagps', '/api/objects/track/')).status).toBe(403);
+			expect((await site(fake, 'alltrails', '/api/alltrails/me')).status).toBe(200);
 			fake.login('gaiagps');
-			expect((await site(fake, 'gaiagps', '/api/v3/me/')).status).toBe(200);
+			expect((await site(fake, 'gaiagps', '/api/objects/track/')).status).toBe(200);
 		});
 
 		it('AllTrails redirects to /login, which is a 200 HTML page', async () => {
-			const res = await site(fake, 'alltrails', '/api/alltrails/v3/me', { cookie: false });
+			const res = await site(fake, 'alltrails', '/api/alltrails/me', { cookie: false });
 			expect(res.status).toBe(302);
 			expect(res.headers.location).toBe('/login');
 			const login = await site(fake, 'alltrails', '/login', { cookie: false });
@@ -212,7 +221,7 @@ describe('fake-source (small dataset)', () => {
 			expect(setCookie).toMatch(/HttpOnly/);
 			expect(setCookie).toMatch(/Path=\//);
 			expect(setCookie).not.toMatch(/Domain=/i);
-			expect((await site(fake, 'alltrails', '/api/alltrails/v3/me')).status).toBe(200);
+			expect((await site(fake, 'alltrails', '/api/alltrails/me')).status).toBe(200);
 		});
 
 		it('serves the home page and robots.txt', async () => {
@@ -238,16 +247,16 @@ describe('fake-source (small dataset)', () => {
 				method: 'POST'
 			});
 			expect(out.status).toBe(200);
-			expect((await site(fake, 'gaiagps', '/api/v3/me/')).status).toBe(401);
+			expect((await site(fake, 'gaiagps', '/api/objects/track/')).status).toBe(403);
 			await http(fake, 'gaia.localhost', '/__control/login?platform=gaiagps', { method: 'POST' });
-			expect((await site(fake, 'gaiagps', '/api/v3/me/')).status).toBe(200);
+			expect((await site(fake, 'gaiagps', '/api/objects/track/')).status).toBe(200);
 
 			const faults = await http(fake, 'localhost', '/__control/faults', {
 				method: 'POST',
-				body: JSON.stringify([{ match: '/me', action: { kind: 'status', status: 500 } }])
+				body: JSON.stringify([{ match: '/user/', action: { kind: 'status', status: 500 } }])
 			});
 			expect(faults.status).toBe(200);
-			expect((await site(fake, 'gaiagps', '/api/v3/me/')).status).toBe(500);
+			expect((await site(fake, 'gaiagps', '/api/v3/user/')).status).toBe(500);
 
 			const stats = (await http(fake, 'localhost', '/__control/stats?platform=gaiagps')).json();
 			expect(stats.apiRequests).toBe(3);
@@ -257,37 +266,39 @@ describe('fake-source (small dataset)', () => {
 	});
 
 	describe('Gaia shape', () => {
-		it('clamps page_size and paginates with absolute next/previous URLs', async () => {
-			const p1 = (await site(fake, 'gaiagps', '/api/v3/track/?page=1&page_size=50')).json();
-			expect(p1.count).toBe(7);
-			expect(p1.results).toHaveLength(3);
-			expect(p1.previous).toBeNull();
-			expect(p1.next).toBe(`${fake.origin('gaiagps')}/api/v3/track/?page=2&page_size=3`);
-			const p2 = (await site(fake, 'gaiagps', toPath(p1.next).path)).json();
-			expect(p2.previous).toBe(`${fake.origin('gaiagps')}/api/v3/track/?page=1&page_size=3`);
-			const p3 = (await site(fake, 'gaiagps', toPath(p2.next).path)).json();
-			expect(p3.results).toHaveLength(1);
-			expect(p3.next).toBeNull();
-			expect((await site(fake, 'gaiagps', '/api/v3/track/?page=4&page_size=3')).status).toBe(404);
-
-			const small = (await site(fake, 'gaiagps', '/api/v3/track/?page_size=2')).json();
-			expect(small.results).toHaveLength(2);
-			expect(small.next).toContain('page_size=2');
+		it('listings are bare, unpaginated arrays that include soft-deleted objects', async () => {
+			const res = await site(fake, 'gaiagps', '/api/objects/track/');
+			expect(res.status).toBe(200);
+			const tracks = res.json();
+			expect(Array.isArray(tracks)).toBe(true);
+			expect(tracks).toHaveLength(8);
+			expect(tracks.filter((t: any) => t.deleted)).toHaveLength(1);
+			// Query parameters change nothing: there is no pagination to ask for.
+			expect(
+				(await site(fake, 'gaiagps', '/api/objects/track/?page=2&page_size=3')).json()
+			).toEqual(tracks);
+			// The invented /api/v3 object paths are gone.
+			expect((await site(fake, 'gaiagps', '/api/v3/track/?page=1')).status).toBe(404);
+			expect((await site(fake, 'gaiagps', '/api/v3/me')).status).toBe(404);
 		});
 
-		it('me carries the e-mail and CSRF sentinels', async () => {
-			expect((await site(fake, 'gaiagps', '/api/v3/me/')).json()).toEqual({
-				id: 'gu-1001',
+		it('the account endpoint carries the e-mail and a secret, and answers anonymously too', async () => {
+			const me = (await site(fake, 'gaiagps', '/api/v3/user/')).json();
+			expect(me).toMatchObject({
+				id: 1001,
 				display_name: 'Test H.',
 				email: SENTINELS.email,
-				csrf_token: SENTINELS.csrfToken,
-				units: 'imperial'
+				is_authenticated: true
 			});
+			expect(JSON.stringify(me.didomi_auth)).toContain(SENTINELS.csrfToken);
+			const anonymous = await site(fake, 'gaiagps', '/api/v3/user/', { cookie: false });
+			expect(anonymous.status).toBe(200);
+			expect(anonymous.json()).toEqual({ id: null, display_name: '', is_authenticated: false });
 		});
 
-		it('listings match expected() for owned objects', async () => {
+		it('listings match expected() for owned, undeleted objects and never say who owns what', async () => {
 			const expected = fake.expected('gaiagps');
-			expect(expected.account).toEqual({ id: 'gu-1001', displayName: 'Test H.' });
+			expect(expected.account).toEqual({ id: '1001', displayName: 'Test H.' });
 			expect(expected.counts).toEqual({
 				tracks: 6,
 				routes: 4,
@@ -296,7 +307,17 @@ describe('fake-source (small dataset)', () => {
 				collections: 4,
 				photos: 4
 			});
-			const listed: Record<string, number> = { track: 7, route: 5, waypoint: 5, area: 2, photo: 5 };
+			// Another user's track filed in one of my folders is the one reference to expect.
+			expect(expected.references).toEqual([
+				{
+					name: 'Shared ridge run',
+					url: `${fake.origin('gaiagps')}/datasummary/track/gt-9001/`,
+					sourceId: 'gt-9001',
+					coordinate: [expect.any(Number), expect.any(Number)]
+				}
+			]);
+			const listed: Record<string, number> = { track: 8, route: 5, waypoint: 6, area: 2, photo: 5 };
+			const foreign = new Set(['gt-9001', 'gr-9002']);
 			const key = {
 				track: 'tracks',
 				route: 'routes',
@@ -307,73 +328,72 @@ describe('fake-source (small dataset)', () => {
 			for (const type of Object.keys(key) as (keyof typeof key)[]) {
 				const all = await gaiaAll(fake, type);
 				expect(all).toHaveLength(listed[type]!);
-				const own = all.filter((o) => o.user_id === 'gu-1001');
+				const own = all.filter((o) => !o.deleted && !foreign.has(o.id));
 				expect(own.map((o) => o.id)).toEqual(expected.ids[key[type]]);
-				expect(own).toHaveLength(expected.counts[key[type]]);
 				for (const o of all) {
-					expect(o.time_created).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$/);
-					expect(o.time_created.endsWith('+00:00')).toBe(false);
-					if (o.user_id === 'gu-1001') {
-						expect(o.user_email).toBe(SENTINELS.email);
-						expect('user_name' in o).toBe(false);
-					} else {
-						expect(o.user_id).toBe('gu-2002');
-						expect(o.user_name).toBe(SENTINELS.otherUserName);
-						expect(o.user_email).toBe(SENTINELS.otherUserEmail);
-						expect(o.notes).toBe(SENTINELS.otherUserDescription);
+					expect(o.time_created).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+					expect(o.last_updated_on_server).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}$/);
+					for (const hidden of ['user_id', 'user_email', 'username', 'created_by']) {
+						expect(hidden in o).toBe(false);
 					}
+					if (foreign.has(o.id)) expect(o.notes).toBe(SENTINELS.otherUserDescription);
 				}
 			}
+			const [waypoint] = await gaiaAll(fake, 'waypoint');
+			expect(waypoint.latitude).toEqual([expect.any(Number)]);
+			expect(waypoint.longitude).toEqual([expect.any(Number)]);
 		});
 
-		it('folders: nesting, many-to-many membership, saved hikes, shared folder', async () => {
+		it('details are GeoJSON and name the owner', async () => {
+			const track = (await site(fake, 'gaiagps', '/api/objects/track/gt-3001/')).json();
+			expect(track.type).toBe('FeatureCollection');
+			expect(track.features).toHaveLength(1);
+			expect(track.features[0].properties).toMatchObject({
+				user_id: 1001,
+				user_email: SENTINELS.email,
+				writable: true
+			});
+			const theirs = (await site(fake, 'gaiagps', '/api/objects/track/gt-9001/')).json();
+			expect(theirs.features[0].properties).toMatchObject({
+				user_id: 2002,
+				user_displayname: SENTINELS.otherUserName,
+				user_email: SENTINELS.otherUserEmail,
+				writable: false
+			});
+			const waypoint = (await site(fake, 'gaiagps', '/api/objects/waypoint/gw-5001/')).json();
+			expect(waypoint.type).toBe('Feature');
+			expect(waypoint.geometry.coordinates).toHaveLength(2);
+			expect(waypoint.properties.elevation).toBe(3652.4);
+			const folder = (await site(fake, 'gaiagps', '/api/objects/folder/gf-8001/')).json();
+			// `name` in the detail, `title` in the listing.
+			expect(folder.properties.name).toBe('Sierra 2024');
+			expect((await site(fake, 'gaiagps', '/api/objects/track/nope/')).status).toBe(404);
+		});
+
+		it('folders: nesting, many-to-many membership, deleted and shared folders', async () => {
 			const folders = await gaiaAll(fake, 'folder');
-			expect(folders).toHaveLength(4);
-			const own = folders.filter((f) => f.user_id === 'gu-1001');
+			expect(folders).toHaveLength(5);
+			expect(folders.filter((f) => f.deleted)).toHaveLength(1);
+			const own = folders.filter((f) => f.access === 'owner' && !f.deleted);
 			expect(own).toHaveLength(3);
 			expect(own.filter((f) => f.parent !== null)).toHaveLength(1);
-			expect(own.map((f) => f.id)).toContain(own.find((f) => f.parent !== null).parent);
+			const child = own.find((f) => f.parent !== null);
+			expect(own.find((f) => f.id === child.parent).children).toEqual([child.id]);
 			const memberships = own.flatMap((f) => f.tracks as string[]);
 			expect(new Set(memberships).size).toBeLessThan(memberships.length);
+			for (const f of own) expect(f).toMatchObject({ is_shared: false, writable: true });
 
-			const shared = folders.filter((f) => f.user_id !== 'gu-1001');
+			const shared = folders.filter((f) => f.access !== 'owner');
 			expect(shared).toHaveLength(1);
-			expect(shared[0].shared_by).toEqual({
-				name: SENTINELS.otherUserName,
-				email: SENTINELS.otherUserEmail
-			});
-			for (const f of own) expect(f.shared_by).toBeNull();
-
-			const withHikes = own.filter((f) => f.saved_hikes.length > 0);
-			expect(withHikes).toHaveLength(1);
-			expect(withHikes[0].tracks).toContain('gt-9001');
-			const hikes = withHikes[0].saved_hikes as any[];
-			expect(hikes).toHaveLength(2);
-			expect(hikes.filter((h) => h.user_notes !== null)).toHaveLength(1);
-			for (const h of hikes) {
-				expect(h.description).toContain(SENTINELS.trailDescription);
-				expect(h.geometry.coordinates.length).toBeGreaterThanOrEqual(4);
-				expect(h.geometry.coordinates.length).toBeLessThanOrEqual(10);
-				const text = JSON.stringify(h.geometry);
-				for (const c of SENTINELS.trailCoordinates) expect(text).toContain(c);
-				expect(h.url.startsWith(fake.origin('gaiagps'))).toBe(true);
-				const th = JSON.stringify(h.trailhead);
-				for (const c of [...SENTINELS.trailCoordinates, ...trailCoordinatesP5]) {
-					expect(th).not.toContain(c);
-				}
-			}
-			expect(fake.expected('gaiagps').references).toEqual(
-				hikes.map((h) => ({
-					name: h.name,
-					url: h.url,
-					sourceId: h.id,
-					coordinate: [h.trailhead.longitude, h.trailhead.latitude]
-				}))
-			);
+			expect(shared[0]).toMatchObject({ is_shared: true, access: 'read', writable: false });
+			expect(shared[0].notes).toBe(SENTINELS.otherUserDescription);
+			// Another user's track sits in one of my folders as well as in theirs.
+			expect(own.some((f) => f.tracks.includes('gt-9001'))).toBe(true);
+			expect(shared[0].tracks).toContain('gt-9001');
 		});
 
 		it('exercises the filename sanitizer', async () => {
-			const tracks = (await gaiaAll(fake, 'track')).filter((t) => t.user_id === 'gu-1001');
+			const tracks = (await gaiaAll(fake, 'track')).filter((t) => t.id !== 'gt-9001');
 			const titles: string[] = tracks.map((t) => t.title);
 			expect(titles.some((t) => t.includes('/') && t.includes('..'))).toBe(true);
 			expect(
@@ -389,25 +409,26 @@ describe('fake-source (small dataset)', () => {
 			let multiSegment = 0;
 			let nonAscii = 0;
 			for (const id of expected.ids.tracks) {
-				const a = await site(fake, 'gaiagps', `/api/v3/track/${id}.gpx`);
-				const b = await site(fake, 'gaiagps', `/api/v3/track/${id}.gpx`);
+				const a = await site(fake, 'gaiagps', `/api/objects/track/${id}.gpx`);
+				// The real endpoint answers with or without the trailing slash.
+				const b = await site(fake, 'gaiagps', `/api/objects/track/${id}.gpx/`);
 				expect(a.status).toBe(200);
 				expect(a.headers['content-type']).toBe('application/gpx+xml');
 				expect(a.body.equals(fake.nativeGpx('gaiagps', 'track', id))).toBe(true);
 				expect(a.body.equals(b.body)).toBe(true);
 				expect(a.body.subarray(0, 5).toString()).toBe('<?xml');
 				expect(a.text).toContain('xmlns="http://www.topografix.com/GPX/1/1"');
-				expect(a.text).toContain('xmlns:gaia=');
-				expect(a.text).toContain('<metadata>');
-				expect(a.text).toContain('<gaia:');
+				expect(a.text).toContain('creator="GaiaGPS"');
+				expect(a.text).toContain('<gaia:color>');
 				expect(a.text.trimEnd().endsWith('</gpx>')).toBe(true);
 				for (const s of sentinelStrings()) expect(a.text).not.toContain(s);
 				// eslint-disable-next-line no-control-regex
 				if (/<name>[^<]*[^\x00-\x7f]/.test(a.text)) nonAscii++;
 
-				const detail = (await site(fake, 'gaiagps', `/api/v3/track/${id}/`)).json();
-				expect(detail.geometry.type).toBe('MultiLineString');
-				const coords: number[][][] = detail.geometry.coordinates;
+				const detail = (await site(fake, 'gaiagps', `/api/objects/track/${id}/`)).json();
+				const geometry = detail.features[0].geometry;
+				expect(geometry.type).toBe('MultiLineString');
+				const coords: number[][][] = geometry.coordinates;
 				if (coords.length > 1) multiSegment++;
 				expect((a.text.match(/<trkseg>/g) ?? []).length).toBe(coords.length);
 				const flat = coords.flat();
@@ -431,26 +452,39 @@ describe('fake-source (small dataset)', () => {
 			expect(nonAscii).toBeGreaterThanOrEqual(1);
 
 			for (const id of expected.ids.routes) {
-				const gpx = await site(fake, 'gaiagps', `/api/v3/route/${id}.gpx`);
+				const gpx = await site(fake, 'gaiagps', `/api/objects/route/${id}.gpx`);
 				expect(gpx.body.equals(fake.nativeGpx('gaiagps', 'route', id))).toBe(true);
 				expect(gpx.text).toContain('<rte>');
 				expect(gpx.text).not.toContain('<trk>');
-				const detail = (await site(fake, 'gaiagps', `/api/v3/route/${id}/`)).json();
-				const flat: number[][] = detail.geometry.coordinates.flat();
-				expect(flat[0]).toHaveLength(3);
+				const detail = (await site(fake, 'gaiagps', `/api/objects/route/${id}/`)).json();
+				const flat: number[][] = detail.features[0].geometry.coordinates.flat();
+				// Four slots like a track, with a zero where the time would be.
+				expect(flat[0]).toHaveLength(4);
+				expect(flat[0]![3]).toBe(0);
 				expect((gpx.text.match(/<rtept /g) ?? []).length).toBe(flat.length);
 			}
 			expect(() => fake.nativeGpx('gaiagps', 'track', 'nope')).toThrow();
 		});
 
-		it('photos: CDN URLs, content types, deterministic bytes, Content-Length', async () => {
+		it('photos: session-free redirect to a signed photo-host URL, content types, stable bytes', async () => {
 			const photos = await gaiaAll(fake, 'photo');
 			const types = new Set<string>();
 			const bodies: Buffer[] = [];
+			fake.resetLog();
 			for (const p of photos) {
-				expect(p.fullsize_url).toBe(`${fake.assetOrigin('gaiagps')}/photos/${p.id}/full`);
-				const { host, path } = toPath(p.fullsize_url);
-				expect(path).not.toMatch(/\.\w+$/);
+				expect(p.scaled).toBe(`${fake.origin('gaiagps')}/api/objects/photo/${p.id}/image/1000/`);
+				expect(typeof p.waypoint_id).toBe('string');
+				// No cookie: the real endpoint redirects anonymous requests too.
+				const hop = await site(fake, 'gaiagps', `/api/objects/photo/${p.id}/image/full/`, {
+					cookie: false
+				});
+				expect(hop.status).toBe(302);
+				const location = String(hop.headers.location);
+				expect(location.startsWith(`${fake.assetOrigin('gaiagps')}/photos/${p.id}/full?`)).toBe(
+					true
+				);
+				expect(location).toContain(`Signature=${SENTINELS.photoSignature}`);
+				const { host, path } = toPath(location);
 				const a = await http(fake, host, path);
 				const b = await http(fake, host, path);
 				expect(a.status).toBe(200);
@@ -466,45 +500,76 @@ describe('fake-source (small dataset)', () => {
 			}
 			expect(types).toEqual(new Set(['image/jpeg', 'image/png', 'image/heic']));
 			expect(new Set(bodies.map((b) => b.toString('base64'))).size).toBe(bodies.length);
-			const own = photos.filter((p) => p.user_id === 'gu-1001');
-			expect(own.filter((p) => p.attached_to === null)).toHaveLength(1);
 			expect((await http(fake, 'cdn.gaia.localhost', '/photos/nope/full')).status).toBe(404);
+			// Redirect hops are asset traffic, not API calls: they are not paced like the API.
 			const stats = fake.stats('gaiagps');
-			expect(stats.assetRequests).toBe(photos.length * 2 + 1);
+			expect(stats.apiRequests).toBe(0);
+			expect(stats.assetRequests).toBe(photos.length * 3 + 1);
 		});
 	});
 
 	describe('AllTrails shape', () => {
-		const base = '/api/alltrails/v3';
+		const base = '/api/alltrails';
 
-		it('me and stats', async () => {
-			const me = (await site(fake, 'alltrails', `${base}/me`)).json();
-			expect(me.user.id).toBe(7001);
-			expect(me.user.email).toBe(SENTINELS.email);
-			expect(me.csrfToken).toBe(SENTINELS.csrfToken);
-			const stats = (await site(fake, 'alltrails', `${base}/users/7001/stats`)).json();
-			expect(stats).toEqual({ activities: 5, maps: 3, photos: 4, completed: 2 });
-			expect((await site(fake, 'alltrails', `${base}/users/1/activities`)).status).toBe(403);
+		it('every API call needs the app key', async () => {
+			const none = await site(fake, 'alltrails', `${base}/me`, { headers: {} });
+			expect(none.status).toBe(400);
+			expect(none.json().errors[0].code).toBe('missing_key');
+			const wrong = await site(fake, 'alltrails', `${base}/me`, {
+				headers: { 'X-AT-KEY': 'nope' }
+			});
+			expect(wrong.json().errors[0].code).toBe('invalid_key');
+			const unknown = await site(fake, 'alltrails', `${base}/users/7001/stats`);
+			expect(unknown.status).toBe(400);
+			expect(unknown.json()).toMatchObject({
+				errors: [{ code: 'method_not_found', target: null, debug: null }],
+				meta: { status: 'error' }
+			});
 		});
 
-		it('clamps limit and walks cursors', async () => {
-			const p1 = (await site(fake, 'alltrails', `${base}/users/7001/activities?limit=50`)).json();
-			expect(p1.items).toHaveLength(3);
-			expect(typeof p1.meta.nextCursor).toBe('string');
-			const p2 = (
-				await site(
-					fake,
-					'alltrails',
-					`${base}/users/7001/activities?limit=50&cursor=${encodeURIComponent(p1.meta.nextCursor)}`
-				)
-			).json();
-			expect(p2.items).toHaveLength(2);
-			expect(p2.meta.nextCursor).toBeNull();
-			const one = (await site(fake, 'alltrails', `${base}/users/7001/activities?limit=1`)).json();
-			expect(one.items).toHaveLength(1);
-			expect(
-				(await site(fake, 'alltrails', `${base}/users/7001/activities?cursor=garbage`)).status
-			).toBe(400);
+		it('turns away API calls that name /robots.txt as their referrer, like the real bot protection', async () => {
+			const blocked = await site(fake, 'alltrails', `${base}/me`, {
+				headers: { 'X-AT-KEY': AT_KEY, Referer: `${fake.origin('alltrails')}/robots.txt` }
+			});
+			expect(blocked.status).toBe(403);
+			expect(Object.keys(blocked.json())).toEqual(['url']);
+			const fine = await site(fake, 'alltrails', `${base}/me`, {
+				headers: { 'X-AT-KEY': AT_KEY, Referer: `${fake.origin('alltrails')}/` }
+			});
+			expect(fine.status).toBe(200);
+		});
+
+		it('me: an envelope, the e-mail and a secret, and list counters that cannot be trusted', async () => {
+			const me = (await site(fake, 'alltrails', `${base}/me`)).json();
+			expect(me.users).toHaveLength(1);
+			expect(me.users[0]).toMatchObject({
+				id: 7001,
+				email: SENTINELS.email,
+				referralCode: SENTINELS.csrfToken,
+				tracks: 4,
+				maps: 3,
+				photos: 3,
+				lists: 0
+			});
+			expect((await site(fake, 'alltrails', `${base}/users/1/maps`)).status).toBe(403);
+		});
+
+		it('clamps limit and pages with after=; other cursor names are ignored', async () => {
+			const path = `${base}/users/7001/maps?presentation_type=track`;
+			const p1 = (await site(fake, 'alltrails', `${path}&limit=50`)).json();
+			expect(p1.maps).toHaveLength(3);
+			expect(p1.pageInfo).toMatchObject({ totalItemCount: 5, itemCount: 3, hasNextPage: true });
+			const next = encodeURIComponent(p1.pageInfo.nextCursor);
+			const p2 = (await site(fake, 'alltrails', `${path}&limit=50&after=${next}`)).json();
+			expect(p2.maps).toHaveLength(2);
+			expect(p2.pageInfo.hasNextPage).toBe(false);
+			expect('nextCursor' in p2.pageInfo).toBe(false);
+			const ignored = (await site(fake, 'alltrails', `${path}&limit=50&cursor=${next}`)).json();
+			expect(ignored.maps[0].id).toBe(p1.maps[0].id);
+			expect((await site(fake, 'alltrails', `${path}&after=garbage`)).status).toBe(400);
+			// Without a presentation type, recordings and custom routes come mixed.
+			const mixed = await atAll(fake, 'maps', 'maps');
+			expect(new Set(mixed.map((m) => m.presentationType))).toEqual(new Set(['map', 'track']));
 		});
 
 		it('listings match expected() for owned objects', async () => {
@@ -513,134 +578,152 @@ describe('fake-source (small dataset)', () => {
 			expect(expected.counts).toEqual({
 				tracks: 4,
 				routes: 3,
-				waypoints: 4,
+				waypoints: 5,
 				areas: 0,
-				collections: 3,
+				collections: 2,
 				photos: 3
 			});
-			const activities = await atAll(fake, 'activities');
-			expect(activities).toHaveLength(5);
-			const ownActs = activities.filter((a) => a.user.id === 7001);
-			expect(ownActs.map((a) => String(a.id))).toEqual(expected.ids.tracks);
-			const other = activities.filter((a) => a.user.id !== 7001);
+			const tracks = await atAll(fake, 'maps?presentation_type=track', 'maps');
+			expect(tracks).toHaveLength(5);
+			const own = tracks.filter((t) => t.user.id === 7001);
+			expect(own.map((t) => String(t.id))).toEqual(expected.ids.tracks);
+			const other = tracks.filter((t) => t.user.id !== 7001);
 			expect(other).toHaveLength(1);
-			expect(other[0].user.name).toBe(SENTINELS.otherUserName);
-			expect(other[0].notes).toBe(SENTINELS.otherUserDescription);
-			for (const a of activities) {
-				expect(typeof a.id).toBe('number');
-				expect(Number.isInteger(a.createdAt)).toBe(true);
-				expect(typeof a.summaryStats.timeTotal).toBe('number');
-			}
-
-			const maps = await atAll(fake, 'maps');
-			expect(maps.map((m) => String(m.id))).toEqual(expected.ids.routes);
-			expect(maps.flatMap((m) => m.waypoints.map((w: any) => String(w.id)))).toEqual(
-				expected.ids.waypoints
-			);
-			for (const m of maps) {
-				expect('timeTotal' in m.summaryStats).toBe(false);
-				expect(typeof m.description).toBe('string');
-			}
-			expect(expected.ids.areas).toEqual([]);
-
-			const photos = await atAll(fake, 'photos');
-			expect(photos).toHaveLength(4);
-			const ownPhotos = photos.filter((p) => p.user.id === 7001);
-			expect(ownPhotos.map((p) => String(p.id))).toEqual(expected.ids.photos);
-			expect(ownPhotos.filter((p) => p.urls.original === undefined)).toHaveLength(1);
-			expect(ownPhotos.filter((p) => p.attachedTo?.type === 'trail')).toHaveLength(1);
-			for (const p of photos) {
-				for (const [rendition, url] of Object.entries<string>(p.urls)) {
-					expect(url).toBe(`${fake.assetOrigin('alltrails')}/p/${p.id}/${rendition}`);
-					const { host, path } = toPath(url);
-					const res = await http(fake, host, path);
-					expect(res.status).toBe(200);
-					expect(Number(res.headers['content-length'])).toBe(res.body.length);
+			expect(other[0].user.firstName).toBe(SENTINELS.otherUserName);
+			expect(other[0].description).toBe(SENTINELS.otherUserDescription);
+			for (const t of tracks) {
+				expect(t.presentationType).toBe('track');
+				expect(t.metadata.created).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+				expect(typeof t.location.latitude).toBe('string');
+				expect(typeof t.summaryStats.duration).toBe('number');
+				// Geometry, waypoints and photo links are not in the listing.
+				for (const hidden of ['tracks', 'routes', 'waypoints', 'mapPhotos']) {
+					expect(hidden in t).toBe(false);
 				}
 			}
+			const maps = await atAll(fake, 'maps?presentation_type=map', 'maps');
+			expect(maps.map((m) => String(m.id))).toEqual(expected.ids.routes);
+			expect(expected.ids.areas).toEqual([]);
+
+			const waypointIds: string[] = [];
+			for (const id of [...expected.ids.tracks, ...expected.ids.routes]) {
+				const shallow = (await site(fake, 'alltrails', `${base}/maps/${id}`)).json().maps[0];
+				expect('waypoints' in shallow).toBe(false);
+				const deep = (await site(fake, 'alltrails', `${base}/maps/${id}?detail=deep`)).json();
+				for (const w of deep.maps[0].waypoints) {
+					waypointIds.push(String(w.id));
+					expect(w.user).toHaveProperty('first_name');
+					expect(typeof w.location.latitude).toBe('number');
+				}
+			}
+			expect(waypointIds).toEqual(expected.ids.waypoints);
 		});
 
-		it('lists, completed trails and references', async () => {
-			const lists = await atAll(fake, 'lists');
-			expect(lists).toHaveLength(2);
-			expect(lists[0].items.map((i: any) => i.type)).toEqual(['trail', 'trail', 'map', 'activity']);
-			expect(lists[1].items).toHaveLength(1);
-			expect(lists[1].items[0].trail.id).toBe(lists[0].items[0].trail.id);
-			const completed = await atAll(fake, 'completed');
-			expect(completed).toHaveLength(2);
-			expect(completed[0].completedAt).toMatch(/^\d{4}-\d\d-\d\d$/);
-			expect(completed.some((c) => c.rating !== null && c.review !== null)).toBe(true);
+		it('photos: no URL in the listing, attachment only in the map detail, key-but-no-session file', async () => {
+			const expected = fake.expected('alltrails');
+			const photos = await atAll(fake, 'photos', 'photos');
+			expect(photos).toHaveLength(4);
+			const own = photos.filter((p) => p.user.id === 7001);
+			expect(own.map((p) => String(p.id))).toEqual(expected.ids.photos);
+			for (const p of photos) {
+				expect(JSON.stringify(p)).not.toMatch(/https?:\/\//);
+				expect(p.photoHash).toMatch(/^[0-9a-f]{32}$/);
+			}
+			expect(own.filter((p) => p.trailId !== null)).toHaveLength(1);
 
-			const trails: any[] = [
-				...lists.flatMap((l) =>
-					l.items.filter((i: any) => i.type === 'trail').map((i: any) => i.trail)
-				),
-				...completed.map((c) => c.trail)
-			];
-			for (const t of trails) {
-				expect(t.user).toBeNull();
-				expect(t.description).toContain(SENTINELS.trailDescription);
-				expect(t.polyline.pointsData.startsWith(SENTINELS.trailPolyline)).toBe(true);
-				const decoded = decodePolyline(t.polyline.pointsData);
-				expect(decoded.length).toBeGreaterThanOrEqual(4);
-				expect(decoded.length).toBeLessThanOrEqual(10);
+			const track = (await site(fake, 'alltrails', `${base}/maps/810001?detail=deep`)).json()
+				.maps[0];
+			expect(track.photoCount).toBe(1);
+			expect(track.mapPhotos).toEqual([
+				expect.objectContaining({ mapId: 810001, photo: expect.objectContaining({ id: 860001 }) })
+			]);
+
+			fake.resetLog();
+			const file = `${base}/v3/photos/860001/image`;
+			expect(
+				(await site(fake, 'alltrails', `${file}?size=original`, { cookie: false })).status
+			).toBe(400);
+			const hop = await site(fake, 'alltrails', `${file}?key=${AT_KEY}&size=whatever`, {
+				cookie: false,
+				headers: {}
+			});
+			expect(hop.status).toBe(302);
+			const location = String(hop.headers.location);
+			expect(location).toBe(`${fake.assetOrigin('alltrails')}/p/860001/full`);
+			const image = await http(fake, toPath(location).host, toPath(location).path);
+			expect(image.status).toBe(200);
+			expect(Number(image.headers['content-length'])).toBe(image.body.length);
+			// Redirect hops are asset traffic, not API calls.
+			expect(fake.stats('alltrails').apiRequests).toBe(0);
+		});
+
+		it('lists carry trail ids only; the trail lookup holds the platform’s content', async () => {
+			const lists = await atAll(fake, 'lists', 'lists');
+			expect(lists.map((l) => l.type)).toEqual(['user-built-in', 'user-built-in', 'user-custom']);
+			// Stale on purpose, like the real thing.
+			for (const l of lists) expect(l.metadata.itemsCount).toBe(0);
+			const items = (await site(fake, 'alltrails', `${base}/lists/${lists[0].id}/items`)).json();
+			expect(items.listItems).toHaveLength(2);
+			expect(Object.keys(items.listItems[0]).sort()).toEqual(
+				['id', 'listId', 'metadata', 'notes', 'order', 'trailId', 'type'].sort()
+			);
+			expect(items.listItems[0].type).toBe('trail');
+			const empty = (await site(fake, 'alltrails', `${base}/lists/${lists[1].id}/items`)).json();
+			expect(empty.listItems).toEqual([]);
+
+			const trails: any[] = [];
+			for (const id of [850001, 850002, 850003]) {
+				const t = (await site(fake, 'alltrails', `${base}/trails/${id}`)).json().trails[0];
+				trails.push(t);
+				expect(t.overview).toContain(SENTINELS.trailDescription);
+				expect(t.defaultMap.polyline.pointsData.startsWith(SENTINELS.trailPolyline)).toBe(true);
+				const decoded = decodePolyline(t.defaultMap.polyline.pointsData);
 				const flat = decoded.slice(0, 2).flatMap(([lat, lon]) => [lat.toFixed(5), lon.toFixed(5)]);
 				expect(flat).toEqual(trailCoordinatesP5);
 				const loc = JSON.stringify(t.location);
 				for (const c of trailCoordinatesP5) expect(loc).not.toContain(c);
+				expect(t.slug.split('/')).toHaveLength(3);
 			}
-			const distinct = [...new Map(trails.map((t) => [t.id, t])).values()];
-			expect(distinct).toHaveLength(3);
 			expect(fake.expected('alltrails').references).toEqual(
-				distinct.map((t) => ({
+				trails.map((t) => ({
 					name: t.name,
 					url: `${fake.origin('alltrails')}/trail/${t.slug}`,
 					sourceId: String(t.id),
 					coordinate: [t.location.longitude, t.location.latitude]
 				}))
 			);
-			const page = await site(fake, 'alltrails', `/trail/${distinct[0].slug}`);
-			expect(page.status).toBe(200);
+			expect((await site(fake, 'alltrails', `/trail/${trails[0].slug}`)).status).toBe(200);
 		});
 
-		it('details decode to the same points as the native GPX', async () => {
+		it('details: precision-5 polylines with indexed elevation and time series; no GPX anywhere', async () => {
 			const expected = fake.expected('alltrails');
 			let multiSegment = 0;
-			const check = async (kind: 'track' | 'route', resource: string, id: string) => {
-				const gpx = await site(fake, 'alltrails', `${base}/${resource}/${id}/export?format=gpx`);
-				expect(gpx.status).toBe(200);
-				expect(gpx.headers['content-type']).toBe('application/gpx+xml');
-				expect(gpx.body.equals(fake.nativeGpx('alltrails', kind, id))).toBe(true);
-				expect(gpx.body.equals(fake.nativeGpx('alltrails', kind, Number(id)))).toBe(true);
-				expect(gpx.text).toContain('<trk>');
-				for (const s of sentinelStrings()) expect(gpx.text).not.toContain(s);
-				const detail = (await site(fake, 'alltrails', `${base}/${resource}/${id}`)).json();
-				if (detail.segments.length > 1) multiSegment++;
-				const pts = [...gpx.text.matchAll(/<trkpt lat="([^"]+)" lon="([^"]+)"/g)];
-				const decoded: [number, number][] = [];
-				for (const seg of detail.segments) {
+			for (const id of expected.ids.tracks) {
+				const detail = (await site(fake, 'alltrails', `${base}/maps/${id}?detail=deep`)).json()
+					.maps[0];
+				expect(detail.routes).toBeUndefined();
+				const segments = detail.tracks[0].lineTimedSegments;
+				if (segments.length > 1) multiSegment++;
+				for (const seg of segments) {
 					const points = decodePolyline(seg.polyline.pointsData);
-					if (seg.polyline.elevationData)
-						expect(seg.polyline.elevationData).toHaveLength(points.length);
-					if (seg.polyline.timeData) expect(seg.polyline.timeData).toHaveLength(points.length);
-					if (kind === 'route') expect(seg.polyline.timeData).toBeNull();
-					else expect(seg.polyline.timeData).not.toBeNull();
-					decoded.push(...points);
+					expect(points.length).toBeGreaterThanOrEqual(24);
+					expect(typeof seg.polyline.indexedTimeData).toBe('string');
+					expect(Date.parse(seg.dateTimeStop)).toBeGreaterThan(Date.parse(seg.dateTimeStart));
 				}
-				expect(decoded.length).toBeGreaterThanOrEqual(24);
-				expect(pts).toHaveLength(decoded.length);
-				pts.forEach((m, i) => {
-					expect(Number(m[1])).toBe(decoded[i]![0]);
-					expect(Number(m[2])).toBe(decoded[i]![1]);
-				});
-			};
-			for (const id of expected.ids.tracks) await check('track', 'activities', id);
-			for (const id of expected.ids.routes) await check('route', 'maps', id);
+			}
 			expect(multiSegment).toBeGreaterThanOrEqual(1);
-			expect(
-				(await site(fake, 'alltrails', `${base}/activities/${expected.ids.tracks[0]}/export`))
-					.status
-			).toBe(400);
+			for (const id of expected.ids.routes) {
+				const detail = (await site(fake, 'alltrails', `${base}/maps/${id}?detail=deep`)).json()
+					.maps[0];
+				expect(detail.tracks).toBeUndefined();
+				for (const seg of detail.routes[0].lineSegments) {
+					expect('indexedTimeData' in seg.polyline).toBe(false);
+					expect(typeof seg.polyline.indexedElevationData).toBe('string');
+				}
+			}
+			const gpx = await site(fake, 'alltrails', `${base}/maps/${expected.ids.tracks[0]}/export`);
+			expect(gpx.json().errors[0].code).toBe('method_not_found');
+			expect(() => fake.nativeGpx('alltrails', 'track', expected.ids.tracks[0]!)).toThrow();
 		});
 	});
 
@@ -676,7 +759,7 @@ describe('fake-source (small dataset)', () => {
 					const out: Record<string, unknown> = {};
 					for (const [k, v] of Object.entries(value)) {
 						// The one intentional plant on own objects.
-						if (k === 'user_email') continue;
+						if (k === 'user_email' || k === 'username') continue;
 						out[k] = strip(v);
 					}
 					return out;
@@ -684,32 +767,31 @@ describe('fake-source (small dataset)', () => {
 				return value;
 			};
 			const g = fake.objects('gaiagps');
-			const mine = (o: any) => o.user_id === 'gu-1001';
+			// Listings never say who owns an object; details do.
+			const theirs = new Set(['gt-9001', 'gr-9002', 'gf-9004']);
+			const mine = (o: { summary: any }) => !theirs.has(o.summary.id);
+			const both = (o: { summary: any; detail: any }) => [o.summary, o.detail];
 			const a = fake.objects('alltrails');
 			const mineAt = (o: any) => o.user.id === 7001;
 			const owned = [
-				...g.tracks.filter((t) => mine(t.summary)).flatMap((t) => [t.summary, t.detail]),
-				...g.routes.filter((t) => mine(t.summary)).flatMap((t) => [t.summary, t.detail]),
-				...g.waypoints.filter(mine),
-				...g.areas.filter(mine),
-				...g.photos.filter(mine),
-				...g.folders.filter(mine).map((f) => ({ ...f, saved_hikes: [] })),
-				...(g.folders.flatMap((f) => f.saved_hikes) as any[]).map((h) => ({
-					trailhead: h.trailhead,
-					user_notes: h.user_notes
-				})),
-				...a.activities.filter((t) => mineAt(t.summary)).flatMap((t) => [t.summary, t.detail]),
-				...a.maps.filter((t) => mineAt(t.summary)).flatMap((t) => [t.summary, t.detail]),
+				...[...g.tracks, ...g.routes, ...g.waypoints, ...g.areas, ...g.photos, ...g.folders]
+					.filter(mine)
+					.flatMap(both),
+				...[...a.tracks, ...a.maps].filter((t) => mineAt(t.summary)).flatMap(both),
 				...a.photos.filter(mineAt),
-				...a.lists.map((l) => ({ ...l, items: [] })),
-				...a.completed.map((c) => ({ ...c, trail: { location: (c.trail as any).location } }))
+				...a.lists.flatMap((l) => [l.list, ...l.items]),
+				// Of a platform trail only these may ever be kept.
+				...a.trails.map((t) => ({ id: t.id, name: t.name, slug: t.slug, location: t.location }))
 			];
 			const text = JSON.stringify(strip(owned));
 			// Decoded polylines too, since the encoded form hides the digits.
-			const decoded = [...a.activities, ...a.maps]
-				.flatMap((l) =>
-					(l.detail.segments as any[]).map((s) => decodePolyline(s.polyline.pointsData))
-				)
+			const decoded = [...a.tracks, ...a.maps]
+				.filter((l) => mineAt(l.summary))
+				.flatMap((l) => {
+					const d = l.detail as any;
+					const segments = d.tracks?.[0].lineTimedSegments ?? d.routes[0].lineSegments;
+					return segments.map((s: any) => decodePolyline(s.polyline.pointsData));
+				})
 				.flat()
 				.map(([lat, lon]) => `${lat.toFixed(5)},${lon.toFixed(5)}`)
 				.join(' ');
@@ -722,13 +804,15 @@ describe('fake-source (small dataset)', () => {
 		it('objects() mirrors what the API serves', async () => {
 			const g = fake.objects('gaiagps');
 			expect(g.tracks.map((t) => t.summary)).toEqual(await gaiaAll(fake, 'track'));
-			expect(g.folders).toEqual(await gaiaAll(fake, 'folder'));
-			expect(g.photos).toEqual(await gaiaAll(fake, 'photo'));
-			const detail = (await site(fake, 'gaiagps', '/api/v3/track/gt-3001/')).json();
+			expect(g.folders.map((f) => f.summary)).toEqual(await gaiaAll(fake, 'folder'));
+			expect(g.photos.map((p) => p.summary)).toEqual(await gaiaAll(fake, 'photo'));
+			const detail = (await site(fake, 'gaiagps', '/api/objects/track/gt-3001/')).json();
 			expect(g.tracks.find((t) => t.summary.id === 'gt-3001')?.detail).toEqual(detail);
 			const a = fake.objects('alltrails');
-			expect(a.maps.map((m) => m.summary)).toEqual(await atAll(fake, 'maps'));
-			expect(a.lists).toEqual(await atAll(fake, 'lists'));
+			expect(a.maps.map((m) => m.summary)).toEqual(
+				await atAll(fake, 'maps?presentation_type=map', 'maps')
+			);
+			expect(a.lists.map((l) => l.list)).toEqual(await atAll(fake, 'lists', 'lists'));
 		});
 
 		it('is deterministic across server instances (modulo the port)', async () => {
@@ -754,7 +838,7 @@ describe('fake-source (small dataset)', () => {
 			const faults = [
 				{
 					platform: 'gaiagps' as const,
-					match: '^/api/v3/track/\\?',
+					match: '^/api/objects/track/$',
 					skip: 1,
 					count: 2,
 					action: { kind: 'status' as const, status: 429, retryAfter: 2 }
@@ -763,108 +847,103 @@ describe('fake-source (small dataset)', () => {
 			fake.setFaults(faults);
 			const statuses: number[] = [];
 			for (let i = 0; i < 5; i++) {
-				const res = await site(fake, 'gaiagps', '/api/v3/track/?page=1');
+				const res = await site(fake, 'gaiagps', '/api/objects/track/');
 				statuses.push(res.status);
 				if (res.status === 429) expect(res.headers['retry-after']).toBe('2');
 			}
 			expect(statuses).toEqual([200, 429, 429, 200, 200]);
 			// Non-matching path and other platform are untouched.
-			expect((await site(fake, 'gaiagps', '/api/v3/route/')).status).toBe(200);
+			expect((await site(fake, 'gaiagps', '/api/objects/route/')).status).toBe(200);
 			fake.setFaults(faults);
-			expect((await site(fake, 'gaiagps', '/api/v3/track/?page=1')).status).toBe(200);
-			expect((await site(fake, 'gaiagps', '/api/v3/track/?page=1')).status).toBe(429);
+			expect((await site(fake, 'gaiagps', '/api/objects/track/')).status).toBe(200);
+			expect((await site(fake, 'gaiagps', '/api/objects/track/')).status).toBe(429);
 		});
 
 		it('first open fault wins; platform filter applies', async () => {
 			fake.setFaults([
-				{ platform: 'alltrails', match: '/me', action: { kind: 'status', status: 500 } },
-				{ match: '/me', count: 1, action: { kind: 'status', status: 403, body: 'nope' } },
-				{ match: '/me', action: { kind: 'status', status: 404 } }
+				{ platform: 'alltrails', match: '/(me|user/)$', action: { kind: 'status', status: 500 } },
+				{ match: '/(me|user/)$', count: 1, action: { kind: 'status', status: 403, body: 'nope' } },
+				{ match: '/(me|user/)$', action: { kind: 'status', status: 404 } }
 			]);
-			const first = await site(fake, 'gaiagps', '/api/v3/me/');
+			const first = await site(fake, 'gaiagps', '/api/v3/user/');
 			expect(first.status).toBe(403);
 			expect(first.text).toBe('nope');
-			expect((await site(fake, 'gaiagps', '/api/v3/me/')).status).toBe(404);
-			expect((await site(fake, 'alltrails', '/api/alltrails/v3/me')).status).toBe(500);
+			expect((await site(fake, 'gaiagps', '/api/v3/user/')).status).toBe(404);
+			expect((await site(fake, 'alltrails', '/api/alltrails/me')).status).toBe(500);
 		});
 
 		it('403 on GPX endpoints leaves JSON details reachable', async () => {
-			fake.setFaults([{ match: '\\.gpx$|/export\\?', action: { kind: 'status', status: 403 } }]);
-			expect((await site(fake, 'gaiagps', '/api/v3/track/gt-3001.gpx')).status).toBe(403);
-			expect((await site(fake, 'gaiagps', '/api/v3/track/gt-3001/')).status).toBe(200);
-			expect(
-				(await site(fake, 'alltrails', '/api/alltrails/v3/activities/810001/export?format=gpx'))
-					.status
-			).toBe(403);
+			fake.setFaults([{ match: '\\.gpx$', action: { kind: 'status', status: 403 } }]);
+			expect((await site(fake, 'gaiagps', '/api/objects/track/gt-3001.gpx')).status).toBe(403);
+			expect((await site(fake, 'gaiagps', '/api/objects/track/gt-3001/')).status).toBe(200);
 		});
 
 		it('challenge answers 200 text/html', async () => {
 			fake.setFaults([{ match: '/api/', count: 1, action: { kind: 'challenge' } }]);
-			const res = await site(fake, 'gaiagps', '/api/v3/waypoint/');
+			const res = await site(fake, 'gaiagps', '/api/objects/waypoint/');
 			expect(res.status).toBe(200);
 			expect(res.headers['content-type']).toMatch(/^text\/html/);
 			expect(res.text).toContain('Checking your browser');
-			expect((await site(fake, 'gaiagps', '/api/v3/waypoint/')).json().count).toBe(5);
+			expect((await site(fake, 'gaiagps', '/api/objects/waypoint/')).json()).toHaveLength(6);
 		});
 
 		it('drop destroys the socket and logs status 0', async () => {
-			fake.setFaults([{ match: '/api/v3/area/', count: 1, action: { kind: 'drop' } }]);
-			await expect(site(fake, 'gaiagps', '/api/v3/area/')).rejects.toThrow();
+			fake.setFaults([{ match: '/api/objects/area/', count: 1, action: { kind: 'drop' } }]);
+			await expect(site(fake, 'gaiagps', '/api/objects/area/')).rejects.toThrow();
 			await sleep(20);
-			const entry = fake.log().find((e) => e.path === '/api/v3/area/');
+			const entry = fake.log().find((e) => e.path === '/api/objects/area/');
 			expect(entry?.status).toBe(0);
 			expect(entry!.end).toBeGreaterThanOrEqual(entry!.start);
-			expect((await site(fake, 'gaiagps', '/api/v3/area/')).status).toBe(200);
+			expect((await site(fake, 'gaiagps', '/api/objects/area/')).status).toBe(200);
 		});
 
 		it('expire-session answers unauthenticated until login()', async () => {
 			fake.setFaults([{ match: '/api/', skip: 1, count: 1, action: { kind: 'expire-session' } }]);
-			expect((await site(fake, 'gaiagps', '/api/v3/me/')).status).toBe(200);
-			expect((await site(fake, 'gaiagps', '/api/v3/me/')).status).toBe(401);
-			expect((await site(fake, 'gaiagps', '/api/v3/me/')).status).toBe(401);
+			expect((await site(fake, 'gaiagps', '/api/objects/track/')).status).toBe(200);
+			expect((await site(fake, 'gaiagps', '/api/objects/track/')).status).toBe(403);
+			expect((await site(fake, 'gaiagps', '/api/objects/track/')).status).toBe(403);
+			expect((await site(fake, 'gaiagps', '/api/v3/user/')).json().is_authenticated).toBe(false);
 			// Only that platform's session died.
-			expect((await site(fake, 'alltrails', '/api/alltrails/v3/me')).status).toBe(200);
+			expect((await site(fake, 'alltrails', '/api/alltrails/me')).status).toBe(200);
 			fake.login('gaiagps');
-			expect((await site(fake, 'gaiagps', '/api/v3/me/')).status).toBe(200);
+			expect((await site(fake, 'gaiagps', '/api/objects/track/')).status).toBe(200);
 
 			fake.setFaults([
 				{ platform: 'alltrails', match: '/api/', count: 1, action: { kind: 'expire-session' } }
 			]);
-			const res = await site(fake, 'alltrails', '/api/alltrails/v3/me');
+			const res = await site(fake, 'alltrails', '/api/alltrails/me');
 			expect(res.status).toBe(302);
 			expect((await site(fake, 'alltrails', '/')).text).toContain('href="/login"');
 			await site(fake, 'alltrails', '/login', { method: 'POST', body: '' });
-			expect((await site(fake, 'alltrails', '/api/alltrails/v3/me')).status).toBe(200);
+			expect((await site(fake, 'alltrails', '/api/alltrails/me')).status).toBe(200);
 		});
 
-		it('schema-drift renames the listing key', async () => {
+		it('schema-drift renames the listing key, or wraps a bare-array listing', async () => {
 			fake.setFaults([{ match: '/api/', action: { kind: 'schema-drift' } }]);
-			const g = (await site(fake, 'gaiagps', '/api/v3/track/')).json();
-			expect(g.results).toBeUndefined();
-			expect(g.data).toHaveLength(3);
-			expect(g.count).toBe(7);
-			const a = (await site(fake, 'alltrails', '/api/alltrails/v3/users/7001/lists')).json();
-			expect(a.items).toBeUndefined();
-			expect(a.entries).toHaveLength(2);
-			// Nested `items` inside list objects are untouched.
-			expect(a.entries[0].items).toHaveLength(4);
+			const g = (await site(fake, 'gaiagps', '/api/objects/track/')).json();
+			expect(Array.isArray(g)).toBe(false);
+			expect(g.results).toHaveLength(8);
+			expect(g.count).toBe(8);
+			const a = (await site(fake, 'alltrails', '/api/alltrails/users/7001/lists')).json();
+			expect(a.lists).toBeUndefined();
+			expect(a.entries).toHaveLength(3);
 			// Not a listing: served normally.
-			expect((await site(fake, 'gaiagps', '/api/v3/me/')).json().id).toBe('gu-1001');
+			expect((await site(fake, 'gaiagps', '/api/v3/user/')).json().id).toBe(1001);
 		});
 
 		it('delay responds normally afterwards and survives a client abort', async () => {
-			fake.setFaults([{ match: '/api/v3/me/', action: { kind: 'delay', ms: 120 } }]);
+			fake.setFaults([{ match: '/api/v3/user/', action: { kind: 'delay', ms: 120 } }]);
 			const t0 = performance.now();
-			const res = await site(fake, 'gaiagps', '/api/v3/me/');
+			const res = await site(fake, 'gaiagps', '/api/v3/user/');
 			expect(performance.now() - t0).toBeGreaterThanOrEqual(110);
-			expect(res.json().id).toBe('gu-1001');
+			expect(res.json().id).toBe(1001);
 
 			fake.resetLog();
 			await new Promise<void>((resolve) => {
 				const req = httpRequest({
 					host: '127.0.0.1',
 					port: fake.port,
-					path: '/api/v3/me/',
+					path: '/api/v3/user/',
 					headers: { Host: `gaia.localhost:${fake.port}`, Cookie: cookieOf(fake, 'gaiagps') },
 					agent: false
 				});
@@ -878,23 +957,23 @@ describe('fake-source (small dataset)', () => {
 			expect(log[0]!.status).toBe(0);
 			expect(log[0]!.end - log[0]!.start).toBeLessThan(110);
 			fake.setFaults([]);
-			expect((await site(fake, 'gaiagps', '/api/v3/me/')).status).toBe(200);
+			expect((await site(fake, 'gaiagps', '/api/v3/user/')).status).toBe(200);
 		});
 	});
 
 	describe('log + stats', () => {
 		it('classifies lanes and records timings', async () => {
 			fake.resetLog();
-			await site(fake, 'gaiagps', '/api/v3/me/');
+			await site(fake, 'gaiagps', '/api/v3/user/');
 			await site(fake, 'gaiagps', '/robots.txt');
 			await http(fake, 'cdn.gaia.localhost', '/photos/gp-7001/full');
-			await site(fake, 'alltrails', '/api/alltrails/v3/me', { cookie: false });
+			await site(fake, 'alltrails', '/api/alltrails/me', { cookie: false });
 			const log = fake.log();
 			expect(log.map((e) => [e.platform, e.lane, e.method, e.path, e.status])).toEqual([
-				['gaiagps', 'api', 'GET', '/api/v3/me/', 200],
+				['gaiagps', 'api', 'GET', '/api/v3/user/', 200],
 				['gaiagps', 'page', 'GET', '/robots.txt', 200],
 				['gaiagps', 'asset', 'GET', '/photos/gp-7001/full', 200],
-				['alltrails', 'api', 'GET', '/api/alltrails/v3/me', 302]
+				['alltrails', 'api', 'GET', '/api/alltrails/me', 302]
 			]);
 			for (const e of log) expect(e.end).toBeGreaterThanOrEqual(e.start);
 			expect(fake.stats('gaiagps')).toMatchObject({
@@ -912,10 +991,10 @@ describe('fake-source (small dataset)', () => {
 		it('measures peak concurrency and the minimum start gap', async () => {
 			fake.setFaults([{ match: '/api/', action: { kind: 'delay', ms: 80 } }]);
 			await Promise.all([
-				site(fake, 'gaiagps', '/api/v3/me/'),
-				site(fake, 'gaiagps', '/api/v3/track/'),
-				site(fake, 'gaiagps', '/api/v3/route/'),
-				site(fake, 'alltrails', '/api/alltrails/v3/me')
+				site(fake, 'gaiagps', '/api/v3/user/'),
+				site(fake, 'gaiagps', '/api/objects/track/'),
+				site(fake, 'gaiagps', '/api/objects/route/'),
+				site(fake, 'alltrails', '/api/alltrails/me')
 			]);
 			const parallel = fake.stats('gaiagps');
 			expect(parallel.apiRequests).toBe(3);
@@ -926,7 +1005,7 @@ describe('fake-source (small dataset)', () => {
 			fake.setFaults([]);
 			fake.resetLog();
 			for (let i = 0; i < 3; i++) {
-				await site(fake, 'gaiagps', '/api/v3/me/');
+				await site(fake, 'gaiagps', '/api/v3/user/');
 				await sleep(50);
 			}
 			const serial = fake.stats('gaiagps');
@@ -957,7 +1036,8 @@ describe('fake-source (large dataset)', () => {
 		expect(expected.counts).toEqual({
 			tracks: 2,
 			routes: 0,
-			waypoints: 0,
+			// Every Gaia photo hangs off a waypoint.
+			waypoints: 2,
 			areas: 0,
 			collections: 0,
 			photos: PHOTOS
@@ -974,33 +1054,29 @@ describe('fake-source (large dataset)', () => {
 			collections: 0,
 			photos: 0
 		});
-		expect(
-			(await site(fake, 'alltrails', '/api/alltrails/v3/users/7001/activities')).json()
-		).toEqual({
-			items: [],
-			meta: { nextCursor: null }
+		expect((await site(fake, 'alltrails', '/api/alltrails/users/7001/maps')).json()).toMatchObject({
+			maps: [],
+			pageInfo: { totalItemCount: 0, hasNextPage: false }
 		});
-		expect((await site(fake, 'gaiagps', '/api/v3/folder/')).json().count).toBe(0);
+		expect((await site(fake, 'gaiagps', '/api/objects/folder/')).json()).toEqual([]);
 	});
 
-	it('pages photos lazily with maxPageSize 100', async () => {
-		const p1 = (await site(fake, 'gaiagps', '/api/v3/photo/?page=1&page_size=500')).json();
-		expect(p1.count).toBe(PHOTOS);
-		expect(p1.results).toHaveLength(100);
-		expect(p1.next).toContain('page=2&page_size=100');
-		const last = (await site(fake, 'gaiagps', '/api/v3/photo/?page=11&page_size=100')).json();
-		expect(last.results).toHaveLength(100);
-		expect(last.next).toBeNull();
+	it('lists every photo in one unpaginated response', async () => {
+		const photos = (await site(fake, 'gaiagps', '/api/objects/photo/')).json();
+		expect(photos).toHaveLength(PHOTOS);
 		const expected = fake.expected('gaiagps');
-		expect(p1.results.map((p: any) => p.id)).toEqual(expected.ids.photos.slice(0, 100));
-		expect(last.results.at(-1).id).toBe(expected.ids.photos.at(-1));
-		const tracks = (await site(fake, 'gaiagps', '/api/v3/track/')).json();
-		expect(tracks.results.map((t: any) => t.id)).toEqual(expected.ids.tracks);
+		expect(photos.map((p: any) => p.id)).toEqual(expected.ids.photos);
+		const tracks = (await site(fake, 'gaiagps', '/api/objects/track/')).json();
+		expect(tracks.map((t: any) => t.id)).toEqual(expected.ids.tracks);
 	});
 
 	it('streams a full-size photo with the right Content-Length and flat memory', async () => {
-		const page = (await site(fake, 'gaiagps', '/api/v3/photo/?page=3')).json();
-		const urls: string[] = page.results.slice(0, 6).map((p: any) => p.fullsize_url);
+		const listed = (await site(fake, 'gaiagps', '/api/objects/photo/')).json();
+		const urls: string[] = [];
+		for (const p of listed.slice(200, 206)) {
+			const hop = await site(fake, 'gaiagps', `/api/objects/photo/${p.id}/image/full/`);
+			urls.push(String(hop.headers.location));
+		}
 		const first = toPath(urls[0]!);
 		const small = await http(fake, first.host, first.path);
 		expect(small.body.subarray(0, 3)).toEqual(Buffer.from([0xff, 0xd8, 0xff]));
@@ -1024,6 +1100,9 @@ describe('fake-source (large dataset)', () => {
 			}
 		}
 		expect(total).toBe(24 * PHOTO_BYTES);
+		// Closed sockets hand their buffers back a turn later.
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		globalThis.gc?.();
 		const after = process.memoryUsage();
 		// 120 MB went over the wire; per-photo buffers would show up here.
 		expect(after.arrayBuffers - before.arrayBuffers).toBeLessThan(32 * 1024 * 1024);

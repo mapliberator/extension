@@ -1,0 +1,61 @@
+{
+	"type": "FeatureCollection",
+	"id": "ga-6001",
+	"features": [
+		{
+			"type": "Feature",
+			"id": "ga-6001",
+			"properties": {
+				"id": "ga-6001",
+				"updated_date": "2024-06-07T16:24:16Z",
+				"time_created": "2024-06-04T15:08:55Z",
+				"last_updated_on_server": "2024-06-07T16:24:25.000000",
+				"deleted": false,
+				"title": "Closure zone 2024",
+				"notes": "Per ranger station notice.",
+				"public": false,
+				"sync_to_mobile": null,
+				"distance": 0,
+				"total_ascent": 0,
+				"total_time": 0,
+				"activities": [],
+				"privacy_level": "private",
+				"source": null,
+				"color": "#ff5a00",
+				"hexcolor": "#ff5a00",
+				"track_type": "polygon",
+				"routing_mode": null,
+				"preferred_link": "/public/ga-6001",
+				"user_displayname": "Test H.",
+				"username": "me@example.test",
+				"user_email": "me@example.test",
+				"user_id": 1001,
+				"created_by": {
+					"id": 1001,
+					"displayName": "Test H.",
+					"link": "/profile/1001/",
+					"image": "http://gaia.localhost:4610/profile/1001/image/"
+				},
+				"writable": true
+			},
+			"style": {
+				"stroke": "#ff5a00"
+			},
+			"geometry": {
+				"type": "Polygon",
+				"coordinates": [
+					[
+						[-118.3105, 36.5682, 0],
+						[-118.305766, 36.567232, 0],
+						[-118.306703, 36.563504, 0],
+						[-118.30833, 36.560581, 0],
+						[-118.313122, 36.559826, 0],
+						[-118.314287, 36.563506, 0],
+						[-118.314426, 36.566715, 0],
+						[-118.3105, 36.5682, 0]
+					]
+				]
+			}
+		}
+	]
+}

@@ -1,95 +1,113 @@
 {
-	"items": [
+	"photos": [
 		{
 			"id": 860001,
 			"title": "Marmot!",
-			"caption": "He wanted my sandwich",
-			"createdAt": 1717514679,
-			"takenAt": 1717507479,
-			"user": {
-				"id": 7001,
-				"name": "Test Hiker"
-			},
+			"description": "He wanted my sandwich",
+			"likeCount": 0,
+			"photoHash": "000000000000000000000000000d1f61",
+			"trailId": null,
+			"trailIds": [],
 			"location": {
 				"latitude": 36.77188,
 				"longitude": -118.36907
 			},
-			"urls": {
-				"original": "http://cdn.alltrails.localhost:4610/p/860001/original",
-				"large": "http://cdn.alltrails.localhost:4610/p/860001/large"
+			"user": {
+				"id": 7001,
+				"username": "test-hiker",
+				"firstName": "Test",
+				"lastName": "Hiker",
+				"slug": "test-hiker"
 			},
-			"attachedTo": {
-				"type": "activity",
-				"id": 810001
+			"metadata": {
+				"created": "2024-06-04T15:24:39Z",
+				"updated": "2024-06-04T15:25:39Z",
+				"status": "A"
 			}
 		},
 		{
 			"id": 869001,
 			"title": "Club photo",
-			"caption": "SENTINEL-OTHER-USER-DESCRIPTION",
-			"createdAt": 1717946679,
-			"takenAt": 1717939479,
-			"user": {
-				"id": 7999,
-				"name": "Sentinel Otheruser"
-			},
+			"description": "SENTINEL-OTHER-USER-DESCRIPTION",
+			"likeCount": 0,
+			"photoHash": "000000000000000000000000000d4289",
+			"trailId": null,
+			"trailIds": [],
 			"location": {
 				"latitude": 36.79133,
 				"longitude": -118.33041
 			},
-			"urls": {
-				"original": "http://cdn.alltrails.localhost:4610/p/869001/original",
-				"large": "http://cdn.alltrails.localhost:4610/p/869001/large"
+			"user": {
+				"id": 7999,
+				"username": "someone-else@example.test",
+				"firstName": "Sentinel Otheruser",
+				"lastName": "X",
+				"slug": "someone-else"
 			},
-			"attachedTo": {
-				"type": "activity",
-				"id": 819001
+			"metadata": {
+				"created": "2024-06-09T15:24:39Z",
+				"updated": "2024-06-09T15:25:39Z",
+				"status": "A"
 			}
 		},
 		{
 			"id": 860002,
 			"title": "",
-			"caption": "",
-			"createdAt": 1717428279,
-			"takenAt": null,
+			"description": null,
+			"likeCount": 0,
+			"photoHash": "000000000000000000000000000d1f62",
+			"trailId": null,
+			"trailIds": [],
+			"location": {
+				"latitude": null,
+				"longitude": null
+			},
 			"user": {
 				"id": 7001,
-				"name": "Test Hiker"
+				"username": "test-hiker",
+				"firstName": "Test",
+				"lastName": "Hiker",
+				"slug": "test-hiker"
 			},
-			"location": null,
-			"urls": {
-				"large": "http://cdn.alltrails.localhost:4610/p/860002/large"
-			},
-			"attachedTo": {
-				"type": "map",
-				"id": 820001
+			"metadata": {
+				"created": "2024-06-03T15:24:39Z",
+				"updated": "2024-06-03T15:25:39Z",
+				"status": "A"
 			}
 		},
 		{
 			"id": 860003,
 			"title": "Top of the falls",
-			"caption": "From my hike on the falls trail",
-			"createdAt": 1719501879,
-			"takenAt": 1719494679,
-			"user": {
-				"id": 7001,
-				"name": "Test Hiker"
-			},
+			"description": "From my hike on the falls trail",
+			"likeCount": 0,
+			"photoHash": "000000000000000000000000000d1f63",
+			"trailId": 850001,
+			"trailIds": [850001],
 			"location": {
 				"latitude": 36.76604,
 				"longitude": -118.37712
 			},
-			"urls": {
-				"original": "http://cdn.alltrails.localhost:4610/p/860003/original",
-				"large": "http://cdn.alltrails.localhost:4610/p/860003/large"
+			"user": {
+				"id": 7001,
+				"username": "test-hiker",
+				"firstName": "Test",
+				"lastName": "Hiker",
+				"slug": "test-hiker"
 			},
-			"attachedTo": {
-				"type": "trail",
-				"id": 850001
+			"metadata": {
+				"created": "2024-06-27T15:24:39Z",
+				"updated": "2024-06-27T15:25:39Z",
+				"status": "A"
 			}
 		}
 	],
 	"meta": {
-		"nextCursor": null
+		"status": "ok",
+		"items": 4
+	},
+	"pageInfo": {
+		"totalItemCount": 4,
+		"itemCount": 4,
+		"hasNextPage": false
 	}
 }

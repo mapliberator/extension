@@ -13,11 +13,11 @@ import type {
 } from '../../shared/models';
 import { finiteOrNull, nonEmpty, toUtcTimestamp } from '../support';
 import type {
-	GaiaArea,
+	GaiaAreaDetail,
+	GaiaAreaSummary,
 	GaiaFolder,
 	GaiaLineDetail,
 	GaiaPhoto,
-	GaiaSavedHike,
 	GaiaTrackSummary,
 	GaiaWaypoint
 } from './schemas';
@@ -26,6 +26,13 @@ export const UNTITLED = 'Untitled';
 
 export interface GaiaUrls {
 	object(type: 'track' | 'route' | 'waypoint' | 'area' | 'photo' | 'folder', id: string): string;
+	/** The original image: answers without a session and redirects to the photo host. */
+	photoFile(id: string): string;
+}
+
+/** Folders list their access level; anything but the owner's is somebody else's folder. */
+export function isOwnFolder(folder: GaiaFolder): boolean {
+	return folder.access ? folder.access === 'owner' : folder.is_shared !== true;
 }
 
 function visibility(isPublic: boolean | undefined): Visibility {
@@ -40,7 +47,6 @@ function base(
 		time_created: string | null;
 		updated_date?: string | null;
 		public?: boolean;
-		tags?: string[];
 	},
 	url: string
 ) {
@@ -50,7 +56,8 @@ function base(
 		createdAt: toUtcTimestamp(summary.time_created),
 		updatedAt: toUtcTimestamp(summary.updated_date),
 		visibility: visibility(summary.public),
-		tags: summary.tags ?? [],
+		// Gaia has no tags.
+		tags: [],
 		source: { id: summary.id, url, raw: summary }
 	};
 }
@@ -71,7 +78,7 @@ export function mapLineSummary(kind: 'track' | 'route', summary: GaiaTrackSummar
 
 /** [lon, lat, ele?, epochSeconds?] → TrackPoint segments. */
 export function mapLineGeometry(detail: GaiaLineDetail): TrackPoint[][] {
-	return detail.geometry.coordinates.map((segment) =>
+	return detail.features[0]!.geometry.coordinates.map((segment) =>
 		segment.flatMap((coordinate): TrackPoint[] => {
 			const [lon, lat, ele, time] = coordinate;
 			if (typeof lon !== 'number' || typeof lat !== 'number') return [];
@@ -87,10 +94,15 @@ export function mapLineGeometry(detail: GaiaLineDetail): TrackPoint[][] {
 	);
 }
 
+const first = (value: number | number[]): number => (typeof value === 'number' ? value : value[0]!);
+
+/** [lon, lat] of a listed waypoint. The listing carries no elevation. */
+export function waypointCoordinate(waypoint: GaiaWaypoint): [number, number] {
+	return [first(waypoint.longitude), first(waypoint.latitude)];
+}
+
 export function mapWaypoint(waypoint: GaiaWaypoint, urls: GaiaUrls): WaypointRecord {
-	const [lon, lat, ele] = waypoint.geometry.coordinates;
-	const position: Position =
-		typeof ele === 'number' && Number.isFinite(ele) ? [lon!, lat!, ele] : [lon!, lat!];
+	const position: Position = waypointCoordinate(waypoint);
 	return {
 		kind: 'waypoint',
 		...base(waypoint, urls.object('waypoint', waypoint.id)),
@@ -104,41 +116,50 @@ function toPosition(coordinate: number[]): Position {
 	return typeof ele === 'number' ? [lon!, lat!, ele] : [lon!, lat!];
 }
 
-export function mapArea(area: GaiaArea, urls: GaiaUrls): AreaRecord {
+export function mapArea(
+	summary: GaiaAreaSummary,
+	detail: GaiaAreaDetail,
+	urls: GaiaUrls
+): AreaRecord {
+	const source = detail.geometry;
 	const geometry: AreaRecord['geometry'] =
-		area.geometry.type === 'Polygon'
-			? {
-					type: 'Polygon',
-					coordinates: area.geometry.coordinates.map((ring) => ring.map(toPosition))
-				}
+		source.type === 'Polygon'
+			? { type: 'Polygon', coordinates: source.coordinates.map((ring) => ring.map(toPosition)) }
 			: {
 					type: 'MultiPolygon',
-					coordinates: area.geometry.coordinates.map((polygon) =>
+					coordinates: source.coordinates.map((polygon) =>
 						polygon.map((ring) => ring.map(toPosition))
 					)
 				};
 	return {
 		kind: 'area',
-		...base(area, urls.object('area', area.id)),
+		...base(summary, urls.object('area', summary.id)),
 		geometry,
-		areaSquareMeters: finiteOrNull(area.area)
+		// Gaia does not report an area's size.
+		areaSquareMeters: null
 	};
 }
 
-export function mapPhoto(photo: GaiaPhoto, urls: GaiaUrls): PhotoRecord {
-	const hasCoordinate = typeof photo.latitude === 'number' && typeof photo.longitude === 'number';
+/**
+ * Every Gaia photo hangs off a waypoint, and the listing has no coordinate of its own: the photo
+ * takes the waypoint's, when that waypoint is still around.
+ */
+export function mapPhoto(
+	photo: GaiaPhoto,
+	urls: GaiaUrls,
+	waypoints: ReadonlyMap<string, [number, number]>
+): PhotoRecord {
+	const coordinate = photo.waypoint_id ? waypoints.get(photo.waypoint_id) : undefined;
 	return {
 		kind: 'photo',
 		name: nonEmpty(photo.title),
-		caption: nonEmpty(photo.caption) ?? nonEmpty(photo.notes),
-		takenAt: toUtcTimestamp(photo.taken_at),
+		caption: nonEmpty(photo.notes),
+		takenAt: null,
 		uploadedAt: toUtcTimestamp(photo.time_created),
-		coordinate: hasCoordinate ? [photo.longitude!, photo.latitude!] : null,
-		url: photo.fullsize_url,
+		coordinate: coordinate ?? null,
+		url: urls.photoFile(photo.id),
 		rendition: 'original',
-		attachedTo: photo.attached_to
-			? { type: photo.attached_to.type, sourceId: photo.attached_to.id }
-			: null,
+		attachedTo: coordinate ? { type: 'waypoint', sourceId: photo.waypoint_id! } : null,
 		source: { id: photo.id, url: urls.object('photo', photo.id), raw: photo }
 	};
 }
@@ -147,33 +168,21 @@ export function mapPhoto(photo: GaiaPhoto, urls: GaiaUrls): PhotoRecord {
 export function mapForeignLine(
 	kind: 'track' | 'route',
 	summary: GaiaTrackSummary,
+	detail: GaiaLineDetail,
 	urls: GaiaUrls
 ): ReferenceRecord {
-	const start = summary.start_location;
+	const { latitude, longitude } = detail.features[0]!.properties;
 	return {
 		name: nonEmpty(summary.title) ?? UNTITLED,
 		source: { id: summary.id, url: urls.object(kind, summary.id) },
-		coordinate: start ? [start.longitude, start.latitude] : null
-	};
-}
-
-export function mapSavedHike(hike: GaiaSavedHike): ReferenceRecord {
-	return {
-		name: hike.name,
-		source: { id: hike.id, url: hike.url ?? null },
-		coordinate: hike.trailhead ? [hike.trailhead.longitude, hike.trailhead.latitude] : null,
-		// The user's own words and dates — not the platform's description or geometry.
-		annotations: {
-			completedAt: nonEmpty(hike.completed_on),
-			rating: finiteOrNull(hike.user_rating),
-			notes: nonEmpty(hike.user_notes)
-		}
+		coordinate:
+			typeof latitude === 'number' && typeof longitude === 'number' ? [longitude, latitude] : null
 	};
 }
 
 export function mapSharedFolder(folder: GaiaFolder, urls: GaiaUrls): ReferenceRecord {
 	return {
-		name: nonEmpty(folder.name) ?? UNTITLED,
+		name: nonEmpty(folder.title) ?? UNTITLED,
 		source: { id: folder.id, url: urls.object('folder', folder.id) },
 		coordinate: null
 	};
@@ -197,13 +206,10 @@ export function mapFolder(
 	add('route', folder.routes);
 	add('waypoint', folder.waypoints);
 	add('area', folder.areas);
-	for (const hike of folder.saved_hikes) {
-		members.push({ kind: 'reference', reference: mapSavedHike(hike) });
-	}
 	return {
 		kind: 'collection',
 		key: folder.id,
-		name: nonEmpty(folder.name) ?? UNTITLED,
+		name: nonEmpty(folder.title) ?? UNTITLED,
 		description: nonEmpty(folder.notes),
 		createdAt: toUtcTimestamp(folder.time_created),
 		updatedAt: toUtcTimestamp(folder.updated_date),

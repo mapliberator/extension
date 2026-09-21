@@ -22,11 +22,15 @@ export const FAKE_SOURCE_PORT = 4610;
 const REAL: Record<SourceId, SourceHosts> = {
 	gaiagps: {
 		origins: ['https://www.gaiagps.com'],
-		assetOrigins: ['https://static.gaiagps.com', 'https://gaia-photos.s3.amazonaws.com']
+		// Photo URLs live on the site host, answer without a session and redirect to signed URLs
+		// on the photo host (docs/phase0-findings.md).
+		assetOrigins: ['https://www.gaiagps.com', 'https://photos.gaiagps.xyz']
 	},
 	alltrails: {
 		origins: ['https://www.alltrails.com'],
-		assetOrigins: ['https://images.alltrails.com', 'https://cdn-assets.alltrails.com']
+		// Photo URLs live on the site host, need the app key rather than a session, and redirect
+		// to the image host (docs/phase0-findings.md).
+		assetOrigins: ['https://www.alltrails.com', 'https://images.alltrails.com']
 	}
 };
 
@@ -40,11 +44,17 @@ const FAKE: Record<SourceId, SourceHosts> | null =
 		: {
 				gaiagps: {
 					origins: [`http://gaia.localhost:${FAKE_SOURCE_PORT}`],
-					assetOrigins: [`http://cdn.gaia.localhost:${FAKE_SOURCE_PORT}`]
+					assetOrigins: [
+						`http://gaia.localhost:${FAKE_SOURCE_PORT}`,
+						`http://cdn.gaia.localhost:${FAKE_SOURCE_PORT}`
+					]
 				},
 				alltrails: {
 					origins: [`http://alltrails.localhost:${FAKE_SOURCE_PORT}`],
-					assetOrigins: [`http://cdn.alltrails.localhost:${FAKE_SOURCE_PORT}`]
+					assetOrigins: [
+						`http://alltrails.localhost:${FAKE_SOURCE_PORT}`,
+						`http://cdn.alltrails.localhost:${FAKE_SOURCE_PORT}`
+					]
 				}
 			};
 
@@ -59,5 +69,5 @@ export function originToMatchPattern(origin: string): string {
 }
 
 export function matchPatternsFor(hosts: SourceHosts): string[] {
-	return [...hosts.origins, ...hosts.assetOrigins].map(originToMatchPattern);
+	return [...new Set([...hosts.origins, ...hosts.assetOrigins].map(originToMatchPattern))];
 }

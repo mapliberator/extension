@@ -166,6 +166,8 @@ export function allSentinels(platform: Platform): string[] {
 	return [
 		SENTINELS.sessionCookie[platform],
 		SENTINELS.csrfToken,
+		SENTINELS.photoSignature,
+		SENTINELS.appKey,
 		SENTINELS.email,
 		SENTINELS.otherUserName,
 		SENTINELS.otherUserEmail,

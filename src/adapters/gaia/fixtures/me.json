@@ -1,7 +1,0 @@
-{
-	"id": "gu-1001",
-	"display_name": "Test H.",
-	"email": "me@example.test",
-	"csrf_token": "scrubbed",
-	"units": "imperial"
-}

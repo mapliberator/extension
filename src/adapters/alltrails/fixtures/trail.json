@@ -1,0 +1,24 @@
+{
+	"trails": [
+		{
+			"id": 850001,
+			"name": "Upper Yosemite Falls Trail",
+			"slug": "us/california/upper-yosemite-falls-trail",
+			"overview": "SENTINEL-TRAIL-DESCRIPTION editorial text owned by the platform (Upper Yosemite Falls Trail)",
+			"location": {
+				"city": "Yosemite Valley",
+				"latitude": 37.74235,
+				"longitude": -119.60214
+			},
+			"defaultMap": {
+				"polyline": {
+					"pointsData": "uhkeF`jqxUkOuPuIgLuIgLuIgL"
+				}
+			}
+		}
+	],
+	"meta": {
+		"status": "ok",
+		"items": 1
+	}
+}

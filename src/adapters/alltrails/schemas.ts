@@ -1,138 +1,181 @@
 /**
- * AllTrails response schemas. Everything platform-specific stays inside this directory
- * (PRD §6.5). Objects are loose: unknown extra fields are not drift.
+ * AllTrails response schemas, written against the recorded shapes in docs/phase0-findings.md.
+ * Everything platform-specific stays inside this directory (PRD §6.5). Objects are loose:
+ * unknown extra fields are not drift.
  */
 import { z } from 'zod';
 
-export const AllTrailsMeSchema = z.looseObject({
-	user: z.looseObject({
-		id: z.number(),
-		firstName: z.string().nullable().optional(),
-		lastName: z.string().nullable().optional(),
-		slug: z.string().nullable().optional()
-	})
-});
-
-export const AllTrailsStatsSchema = z.looseObject({
-	activities: z.number().optional(),
-	maps: z.number().optional(),
-	photos: z.number().optional(),
-	completed: z.number().optional()
-});
-
-const LocationSchema = z.looseObject({ latitude: z.number(), longitude: z.number() });
 const UserRefSchema = z.looseObject({ id: z.number() });
 
-const lineCommon = {
+export const AllTrailsMeSchema = z.looseObject({
+	users: z
+		.array(
+			z.looseObject({
+				id: z.number(),
+				firstName: z.string().nullable().optional(),
+				lastName: z.string().nullable().optional(),
+				tracks: z.number().nullable().optional(),
+				maps: z.number().nullable().optional(),
+				photos: z.number().nullable().optional()
+			})
+		)
+		.min(1)
+});
+
+/** Every listing is `{ <resource>: [...], pageInfo }`, paged with `after=<pageInfo.nextCursor>`. */
+const pageInfo = z
+	.looseObject({
+		hasNextPage: z.boolean().nullable().optional(),
+		nextCursor: z.string().nullable().optional()
+	})
+	.nullable()
+	.optional();
+
+/** A recording (`presentationType: 'track'`) or a custom route (`'map'`), as listed. */
+export const AllTrailsMapSchema = z.looseObject({
 	id: z.number(),
 	name: z.string().nullable(),
-	createdAt: z.number().nullable().optional(),
-	updatedAt: z.number().nullable().optional(),
-	activityType: z.looseObject({ uid: z.string() }).nullable().optional(),
-	private: z.boolean().optional(),
+	description: z.string().nullable().optional(),
+	presentationType: z.string().optional(),
+	slug: z.string().nullable().optional(),
+	created_at: z.string().nullable().optional(),
+	activity: z.looseObject({ uid: z.string().nullable().optional() }).nullable().optional(),
+	private: z.boolean().nullable().optional(),
 	user: UserRefSchema,
+	photoCount: z.number().nullable().optional(),
 	summaryStats: z
 		.looseObject({
+			duration: z.number().nullable().optional(),
 			distanceTotal: z.number().nullable().optional(),
-			elevationGain: z.number().nullable().optional(),
-			timeTotal: z.number().nullable().optional()
+			elevationGain: z.number().nullable().optional()
 		})
 		.nullable()
 		.optional(),
-	location: LocationSchema.nullable().optional()
-};
-
-export const AllTrailsActivitySchema = z.looseObject({
-	...lineCommon,
-	notes: z.string().nullable().optional()
-});
-export type AllTrailsActivity = z.infer<typeof AllTrailsActivitySchema>;
-
-export const AllTrailsMapWaypointSchema = z.looseObject({
-	id: z.number(),
-	name: z.string().nullable(),
-	description: z.string().nullable().optional(),
-	location: LocationSchema,
-	createdAt: z.number().nullable().optional()
-});
-export type AllTrailsMapWaypoint = z.infer<typeof AllTrailsMapWaypointSchema>;
-
-export const AllTrailsMapSchema = z.looseObject({
-	...lineCommon,
-	description: z.string().nullable().optional(),
-	waypoints: z.array(AllTrailsMapWaypointSchema).default([])
+	metadata: z
+		.looseObject({
+			created: z.string().nullable().optional(),
+			updated: z.string().nullable().optional()
+		})
+		.nullable()
+		.optional()
 });
 export type AllTrailsMap = z.infer<typeof AllTrailsMapSchema>;
+export const AllTrailsMapsPageSchema = z.looseObject({
+	maps: z.array(AllTrailsMapSchema),
+	pageInfo
+});
 
-export const AllTrailsSegmentsSchema = z.looseObject({
+const PolylineSchema = z.looseObject({
+	pointsData: z.string(),
+	indexedElevationData: z.string().nullable().optional(),
+	indexedTimeData: z.string().nullable().optional()
+});
+
+const SegmentSchema = z.looseObject({
+	sequence_num: z.number().nullable().optional(),
+	dateTimeStart: z.string().nullable().optional(),
+	polyline: PolylineSchema
+});
+export type AllTrailsSegment = z.infer<typeof SegmentSchema>;
+
+export const AllTrailsWaypointSchema = z.looseObject({
 	id: z.number(),
-	segments: z.array(
-		z.looseObject({
-			polyline: z.looseObject({
-				pointsData: z.string(),
-				elevationData: z.array(z.number().nullable()).nullable().optional(),
-				timeData: z.array(z.number().nullable()).nullable().optional()
+	name: z.string().nullable().optional(),
+	description: z.string().nullable().optional(),
+	location: z.looseObject({ latitude: z.number(), longitude: z.number() }),
+	waypointCategory: z.looseObject({ uid: z.string().nullable().optional() }).nullable().optional()
+});
+export type AllTrailsWaypoint = z.infer<typeof AllTrailsWaypointSchema>;
+
+/** `GET /maps/<id>?detail=deep` → `{ maps: [detail] }`. */
+export const AllTrailsMapDetailSchema = z.looseObject({
+	maps: z
+		.array(
+			z.looseObject({
+				id: z.number(),
+				routes: z
+					.array(z.looseObject({ lineSegments: z.array(SegmentSchema).default([]) }))
+					.nullable()
+					.optional(),
+				tracks: z
+					.array(z.looseObject({ lineTimedSegments: z.array(SegmentSchema).default([]) }))
+					.nullable()
+					.optional(),
+				waypoints: z.array(AllTrailsWaypointSchema).nullable().optional(),
+				mapPhotos: z
+					.array(z.looseObject({ photo: z.looseObject({ id: z.number() }) }))
+					.nullable()
+					.optional()
 			})
-		})
-	)
+		)
+		.min(1)
 });
-export type AllTrailsSegments = z.infer<typeof AllTrailsSegmentsSchema>;
-
-/** Platform-owned trail. Only the fields a reference may carry are even parsed. */
-export const AllTrailsTrailSchema = z.looseObject({
-	id: z.number(),
-	name: z.string(),
-	slug: z.string().nullable().optional(),
-	location: LocationSchema.nullable().optional()
-});
-export type AllTrailsTrail = z.infer<typeof AllTrailsTrailSchema>;
-
-export const AllTrailsListItemSchema = z.discriminatedUnion('type', [
-	z.looseObject({ type: z.literal('trail'), trail: AllTrailsTrailSchema }),
-	z.looseObject({ type: z.literal('map'), id: z.number() }),
-	z.looseObject({ type: z.literal('activity'), id: z.number() })
-]);
+export type AllTrailsMapDetail = z.infer<typeof AllTrailsMapDetailSchema>['maps'][number];
 
 export const AllTrailsListSchema = z.looseObject({
 	id: z.number(),
 	name: z.string().nullable(),
 	description: z.string().nullable().optional(),
-	private: z.boolean().optional(),
-	createdAt: z.number().nullable().optional(),
-	updatedAt: z.number().nullable().optional(),
-	user: UserRefSchema,
-	items: z.array(AllTrailsListItemSchema).default([])
+	private: z.boolean().nullable().optional(),
+	ownerId: z.number().nullable().optional(),
+	user: UserRefSchema.nullable().optional()
 });
 export type AllTrailsList = z.infer<typeof AllTrailsListSchema>;
-
-export const AllTrailsCompletedSchema = z.looseObject({
-	trail: AllTrailsTrailSchema,
-	completedAt: z.string().nullable().optional(),
-	rating: z.number().nullable().optional(),
-	review: z.string().nullable().optional(),
-	privateNotes: z.string().nullable().optional()
+export const AllTrailsListsPageSchema = z.looseObject({
+	lists: z.array(AllTrailsListSchema),
+	pageInfo
 });
-export type AllTrailsCompleted = z.infer<typeof AllTrailsCompletedSchema>;
+
+/** An item carries nothing but ids. Only `type: 'trail'` has been observed. */
+export const AllTrailsListItemSchema = z.looseObject({
+	id: z.number(),
+	type: z.string(),
+	notes: z.string().nullable().optional(),
+	trailId: z.number().nullable().optional()
+});
+export type AllTrailsListItem = z.infer<typeof AllTrailsListItemSchema>;
+
+export const AllTrailsListItemsSchema = z.looseObject({
+	listItems: z.array(AllTrailsListItemSchema)
+});
+
+/** Only what a reference may keep: everything else on a trail is the platform's content. */
+export const AllTrailsTrailSchema = z.looseObject({
+	trails: z
+		.array(
+			z.looseObject({
+				id: z.number(),
+				name: z.string(),
+				slug: z.string().nullable().optional(),
+				location: z
+					.looseObject({
+						latitude: z.number().nullable().optional(),
+						longitude: z.number().nullable().optional()
+					})
+					.nullable()
+					.optional()
+			})
+		)
+		.min(1)
+});
+export type AllTrailsTrail = z.infer<typeof AllTrailsTrailSchema>['trails'][number];
 
 export const AllTrailsPhotoSchema = z.looseObject({
 	id: z.number(),
 	title: z.string().nullable().optional(),
-	caption: z.string().nullable().optional(),
-	createdAt: z.number().nullable().optional(),
-	takenAt: z.number().nullable().optional(),
-	user: UserRefSchema,
-	location: LocationSchema.nullable().optional(),
-	urls: z.looseObject({ original: z.string().optional(), large: z.string() }),
-	attachedTo: z
-		.looseObject({ type: z.enum(['activity', 'map', 'trail']), id: z.number() })
+	description: z.string().nullable().optional(),
+	location: z
+		.looseObject({
+			latitude: z.number().nullable().optional(),
+			longitude: z.number().nullable().optional()
+		})
 		.nullable()
-		.optional()
+		.optional(),
+	user: UserRefSchema,
+	metadata: z.looseObject({ created: z.string().nullable().optional() }).nullable().optional()
 });
 export type AllTrailsPhoto = z.infer<typeof AllTrailsPhotoSchema>;
-
-export function allTrailsListingSchema<S extends z.ZodType>(item: S) {
-	return z.looseObject({
-		items: z.array(item),
-		meta: z.looseObject({ nextCursor: z.string().nullable() })
-	});
-}
+export const AllTrailsPhotosPageSchema = z.looseObject({
+	photos: z.array(AllTrailsPhotoSchema),
+	pageInfo
+});

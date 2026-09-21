@@ -19,11 +19,13 @@ export function loadFixture<T = any>(adapter: 'gaia' | 'alltrails', name: string
 /** A transport that answers from fixtures: `routes` maps a URL pattern to a fixture (or value). */
 export function fixtureTransport(
 	routes: [RegExp, unknown][],
-	requested: string[] = []
+	requested: string[] = [],
+	sentHeaders: (Record<string, string> | undefined)[] = []
 ): AdapterTransport {
 	return {
-		async getJson(url: string) {
+		async getJson(url: string, headers?: Record<string, string>) {
 			requested.push(url);
+			sentHeaders.push(headers);
 			const route = routes.find(([pattern]) => pattern.test(url));
 			if (!route) throw new Error(`no fixture for ${url}`);
 			return structuredClone(route[1]);

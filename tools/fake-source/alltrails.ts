@@ -1,52 +1,73 @@
-/** AllTrails-shaped dataset + API (`/api/alltrails/v3`, cursor listings, encoded polylines). */
+/**
+ * AllTrails-shaped dataset + API. Shapes follow docs/phase0-findings.md: `/api/alltrails`,
+ * an `X-AT-KEY` header on every call, `{ <resource>: [...], meta, pageInfo }` envelopes paged
+ * with `after=<nextCursor>`, recordings and custom routes as one `maps` resource, geometry as
+ * encoded polylines with indexed elevation/time series, waypoints and photo links only inside
+ * the map detail, list items that carry nothing but a trail id.
+ */
 import {
 	BASE_EPOCH,
 	DAY,
 	NAMES,
 	PLATFORM_TRAILS,
-	isoDate,
+	isoUtc,
 	lineStats,
 	makeLine,
 	type Env,
 	type Pt,
 	type ResolvedDataset
 } from './dataset.ts';
-import { buildGpx, type GpxWaypoint } from './gpx.ts';
 import type { PhotoMime, PhotoSpec } from './photos.ts';
-import { encodePolyline } from './polyline.ts';
-import { json, parseIntParam, type ApiRequest, type Reply } from './reply.ts';
+import { encodeIndexed, encodePolyline } from './polyline.ts';
+import { parseIntParam, type ApiRequest, type Reply } from './reply.ts';
 import { SENTINELS } from './sentinels.ts';
 import type { AllTrailsObjects, ExpectedArchive, Json } from './types.ts';
 
 const ME_ID = 7001;
 const OTHER_ID = 7999;
-const PREFIX = '/api/alltrails/v3';
-const GPX_NS = { prefix: 'at', uri: 'https://www.alltrails.com/gpx/extensions/1' };
-const CREATOR = 'AllTrails (fake-source)';
+const PREFIX = '/api/alltrails';
+/** The app key the fake site's "JavaScript" would send. Not a secret, and not the real one. */
+export const FAKE_AT_KEY = SENTINELS.appKey;
+/** Indexed time series count hundredths of a second from an origin of the platform's choosing. */
+const TIME_ORIGIN = BASE_EPOCH - 7_600_000;
 
-const ME_USER = { id: ME_ID, name: 'Test Hiker' };
-const OTHER_USER = { id: OTHER_ID, name: SENTINELS.otherUserName };
+function user(own: boolean): Json {
+	return own
+		? {
+				id: ME_ID,
+				username: 'test-hiker',
+				firstName: 'Test',
+				lastName: 'Hiker',
+				slug: 'test-hiker'
+			}
+		: {
+				id: OTHER_ID,
+				username: SENTINELS.otherUserEmail,
+				firstName: SENTINELS.otherUserName,
+				lastName: 'X',
+				slug: 'someone-else'
+			};
+}
 
 export interface AtLine {
 	id: number;
 	own: boolean;
 	summary: Json;
 	detail: Json;
-	gpx: Buffer;
 }
 
 export interface AtPhoto {
 	json: Json;
 	own: boolean;
-	renditions: Record<string, PhotoSpec>;
+	spec: PhotoSpec;
 }
 
 export interface AllTrailsData {
 	me: Json;
-	activities: AtLine[];
+	tracks: AtLine[];
 	maps: AtLine[];
-	lists: Json[];
-	completed: Json[];
+	lists: { list: Json; items: Json[] }[];
+	trails: Json[];
 	photos: AtPhoto[];
 	expected(): ExpectedArchive;
 	objects(): AllTrailsObjects;
@@ -63,12 +84,13 @@ interface LineSpecA {
 	start: [number, number];
 	segments: number[];
 	ele?: boolean;
-	/** Maps only. */
 	description?: string;
 	waypoints?: { id: number; name: string; description: string; at: [number, number] }[];
+	/** IDs of photos attached to this map; filled in by `attach`. */
+	photos?: number[];
 }
 
-function buildLine(kind: 'activity' | 'map', spec: LineSpecA): AtLine {
+function buildLine(env: Env, kind: 'track' | 'map', spec: LineSpecA): AtLine {
 	const own = spec.own !== false;
 	const createdAt = BASE_EPOCH + spec.day * DAY + (spec.day % 5) * 2113;
 	const segments: Pt[][] = makeLine({
@@ -78,180 +100,228 @@ function buildLine(kind: 'activity' | 'map', spec: LineSpecA): AtLine {
 		digits: 5,
 		startTime: createdAt - 5 * 3600,
 		ele: spec.ele,
-		time: kind === 'activity'
+		time: kind === 'track'
 	});
 	const stats = lineStats(segments);
 	const first = segments[0]![0]!;
-	const notes = own ? (spec.notes ?? '') : SENTINELS.otherUserDescription;
+	const text = own ? (spec.description ?? spec.notes ?? '') : SENTINELS.otherUserDescription;
+	const isPrivate = spec.private ?? false;
+	const privacy = `urn:alltrails:visibility:${isPrivate ? 'private' : 'public'}`;
 	const summary: Json = {
 		id: spec.id,
 		name: spec.name,
-		notes
+		description: text,
+		presentationType: kind,
+		slug: `${kind}-${spec.id}`,
+		created_at: isoUtc(createdAt),
+		// Strings, as the real listing has them.
+		location: {
+			city: null,
+			country: 'US',
+			latitude: String(first.lat),
+			longitude: String(first.lon)
+		},
+		trailId: null,
+		activity: { uid: spec.activityType, name: spec.activityType },
+		user: user(own),
+		private: isPrivate,
+		contentPrivacy: privacy,
+		summaryStats: {
+			duration: kind === 'track' ? stats.duration : 0,
+			distanceTotal: stats.distance,
+			elevationGain: stats.ascent
+		},
+		photoCount: 0,
+		metadata: {
+			created: isoUtc(createdAt),
+			updated: isoUtc(createdAt + 2 * DAY + 1234),
+			status: 'A',
+			cursor: Buffer.from(`c:${spec.id}`).toString('base64url')
+		}
 	};
+	const polyline = (seg: Pt[]): Json => ({
+		pointsData: encodePolyline(
+			seg.map((p) => [p.lat, p.lon] as const),
+			5
+		),
+		...(kind === 'track'
+			? {
+					indexedTimeData: encodeIndexed(
+						seg.map((p) => (p.time === null ? null : (p.time - TIME_ORIGIN) * 100))
+					),
+					elevationData: null
+				}
+			: {}),
+		indexedElevationData: seg.every((p) => p.ele !== null)
+			? encodeIndexed(seg.map((p) => Math.round(p.ele! * 1e5)))
+			: null
+	});
+	const lines =
+		kind === 'track'
+			? {
+					tracks: [
+						{
+							id: spec.id + 5_000_000,
+							status: 'A',
+							sequence_num: 0,
+							lineTimedSegments: segments.map((seg, i) => ({
+								id: spec.id * 10 + i,
+								sequence_num: i,
+								dateTimeStart: isoUtc(seg[0]!.time!),
+								dateTimeStop: isoUtc(seg.at(-1)!.time!),
+								polyline: polyline(seg)
+							}))
+						}
+					]
+				}
+			: {
+					routes: [
+						{
+							id: spec.id + 5_000_000,
+							status: 'A',
+							sequence_num: 0,
+							lineSegments: segments.map((seg, i) => ({
+								id: spec.id * 10 + i,
+								sequence_num: i,
+								polyline: polyline(seg)
+							}))
+						}
+					]
+				};
 	const waypoints = (spec.waypoints ?? []).map((w, i) => ({
 		id: w.id,
 		name: w.name,
-		description: w.description,
+		name_original: w.name,
+		description: w.description === '' ? null : w.description,
+		order: i,
 		location: { latitude: w.at[0], longitude: w.at[1] },
-		createdAt: createdAt + 60 * (i + 1)
+		at_map_id: spec.id,
+		waypointCategory: { id: 1, name: 'General', uid: 'general', icon: 'waypoint-general' },
+		contentPrivacy: privacy,
+		isGlobal: false,
+		// snake_case here, camelCase on the map: that is how the real API has it.
+		user: { id: own ? ME_ID : OTHER_ID, first_name: own ? 'Test' : SENTINELS.otherUserName }
 	}));
-	if (kind === 'map') summary.description = own ? (spec.description ?? '') : notes;
-	summary.createdAt = createdAt;
-	summary.updatedAt = createdAt + 2 * DAY + 1234;
-	summary.activityType = { uid: spec.activityType };
-	summary.private = spec.private ?? false;
-	summary.user = own ? ME_USER : OTHER_USER;
-	summary.summaryStats =
-		kind === 'activity'
-			? { distanceTotal: stats.distance, elevationGain: stats.ascent, timeTotal: stats.duration }
-			: { distanceTotal: stats.distance, elevationGain: stats.ascent };
-	summary.location = { latitude: first.lat, longitude: first.lon };
-	if (kind === 'map') summary.waypoints = waypoints;
-
-	const detail: Json = {
-		...summary,
-		segments: segments.map((seg) => ({
-			polyline: {
-				pointsData: encodePolyline(
-					seg.map((p) => [p.lat, p.lon] as const),
-					5
-				),
-				elevationData: seg.every((p) => p.ele !== null) ? seg.map((p) => p.ele) : null,
-				timeData: seg.every((p) => p.time !== null) ? seg.map((p) => p.time) : null
-			}
-		}))
-	};
-	const gpxWaypoints: GpxWaypoint[] = waypoints.map((w) => ({
-		lat: w.location.latitude,
-		lon: w.location.longitude,
-		name: w.name,
-		desc: w.description
-	}));
-	const gpx = buildGpx({
-		creator: CREATOR,
-		ns: GPX_NS,
-		kind: 'trk',
-		name: spec.name,
-		desc: kind === 'map' && own ? spec.description || notes : notes,
-		time: createdAt,
-		author: own ? undefined : SENTINELS.otherUserName,
-		extensions: [
-			['activityType', spec.activityType],
-			['kind', kind]
-		],
-		segments,
-		waypoints: gpxWaypoints,
-		digits: 5
-	});
-	return { id: spec.id, own, summary, detail, gpx };
+	const detail: Json = { ...summary, ...lines, waypoints, mapPhotos: [], map_source: 'ios' };
+	return { id: spec.id, own, summary, detail };
 }
 
+/** `GET /trails/<id>`: everything but name, slug and location is the platform's own content. */
 function trail(index: number): Json {
 	const t = PLATFORM_TRAILS[index]!;
 	return {
 		id: 850001 + index,
 		name: t.name,
-		slug: t.slug,
-		description: `${SENTINELS.trailDescription} (${t.name})`,
-		location: { latitude: t.trailhead[0], longitude: t.trailhead[1] },
-		polyline: { pointsData: encodePolyline(t.geometry, 5) },
-		user: null
+		slug: `us/california/${t.slug}`,
+		overview: `${SENTINELS.trailDescription} (${t.name})`,
+		location: { city: 'Yosemite Valley', latitude: t.trailhead[0], longitude: t.trailhead[1] },
+		defaultMap: { polyline: { pointsData: encodePolyline(t.geometry, 5) } }
 	};
 }
 
 interface PhotoSpecA {
 	id: number;
 	title: string;
-	caption: string;
+	description: string;
 	own?: boolean;
 	day: number;
-	taken: boolean;
 	at: [number, number] | null;
-	attached: { type: 'activity' | 'map' | 'trail'; id: number } | null;
+	/** The recording or custom route it was added to. */
+	map: number | null;
+	/** A photo posted on a platform trail instead. */
+	trailId?: number;
 	mime?: PhotoMime;
-	original: number | null;
-	large: number;
+	size: number;
 }
 
-function photo(env: Env, spec: PhotoSpecA): AtPhoto {
+function photo(spec: PhotoSpecA): AtPhoto {
 	const own = spec.own !== false;
-	const mime = spec.mime ?? 'image/jpeg';
 	const createdAt = BASE_EPOCH + spec.day * DAY + 4410;
-	const renditions: Record<string, PhotoSpec> = {
-		large: { key: `alltrails/${spec.id}/large`, size: spec.large, mime }
-	};
-	const urls: Record<string, string> = {};
-	if (spec.original !== null) {
-		renditions.original = { key: `alltrails/${spec.id}/original`, size: spec.original, mime };
-		urls.original = `${env.cdnOrigin}/p/${spec.id}/original`;
-	}
-	urls.large = `${env.cdnOrigin}/p/${spec.id}/large`;
 	return {
 		own,
-		renditions,
+		spec: { key: `alltrails/${spec.id}/full`, size: spec.size, mime: spec.mime ?? 'image/jpeg' },
 		json: {
 			id: spec.id,
 			title: spec.title,
-			caption: spec.caption,
-			createdAt,
-			takenAt: spec.taken ? createdAt - 7200 : null,
-			user: own ? ME_USER : OTHER_USER,
-			location: spec.at ? { latitude: spec.at[0], longitude: spec.at[1] } : null,
-			urls,
-			attachedTo: spec.attached
+			description: own ? spec.description || null : SENTINELS.otherUserDescription,
+			likeCount: 0,
+			photoHash: spec.id.toString(16).padStart(32, '0'),
+			trailId: spec.trailId ?? null,
+			trailIds: spec.trailId ? [spec.trailId] : [],
+			location: spec.at
+				? { latitude: spec.at[0], longitude: spec.at[1] }
+				: { latitude: null, longitude: null },
+			user: user(own),
+			metadata: { created: isoUtc(createdAt), updated: isoUtc(createdAt + 60), status: 'A' }
 		}
 	};
 }
 
-const ME: Json = {
-	user: {
-		id: ME_ID,
-		firstName: 'Test',
-		lastName: 'Hiker',
-		email: SENTINELS.email,
-		slug: 'test-hiker',
-		metric: false
-	},
-	csrfToken: SENTINELS.csrfToken
+/** Photos are tied to their map only inside that map's detail (`mapPhotos`) and `photoCount`. */
+function attach(lines: AtLine[], photos: { photo: AtPhoto; map: number | null }[]): void {
+	for (const { photo: p, map } of photos) {
+		const line = lines.find((l) => l.id === map);
+		if (!line) continue;
+		const location = p.json.location as { latitude: number | null; longitude: number | null };
+		(line.detail.mapPhotos as Json[]).push({
+			id: Number(p.json.id) + 1_000_000,
+			mapId: line.id,
+			location: { latitude: String(location.latitude), longitude: String(location.longitude) },
+			photo: p.json
+		});
+		line.summary.photoCount = line.detail.photoCount = (line.detail.mapPhotos as Json[]).length;
+	}
+}
+
+const ME_USER: Json = {
+	...user(true),
+	email: SENTINELS.email,
+	referralCode: SENTINELS.csrfToken,
+	metric: false
 };
 
 function finish(
 	env: Env,
 	parts: Omit<AllTrailsData, 'me' | 'expected' | 'objects'>
 ): AllTrailsData {
+	const counters = {
+		tracks: parts.tracks.filter((t) => t.own).length,
+		maps: parts.maps.filter((m) => m.own).length,
+		photos: parts.photos.filter((p) => p.own).length,
+		// The real counters stay at zero for the built-in lists; never trust them.
+		lists: 0,
+		favorites: 0
+	};
+	const me: Json = { ...ME_USER, ...counters };
 	return {
-		me: ME,
+		me,
 		...parts,
 		expected(): ExpectedArchive {
-			const ownMaps = parts.maps.filter((m) => m.own);
+			const own = [...parts.tracks, ...parts.maps].filter((l) => l.own);
 			const references: ExpectedArchive['references'] = [];
-			const addTrail = (t: Json): void => {
-				const sourceId = String(t.id);
-				if (references.some((r) => r.sourceId === sourceId)) return;
-				const loc = t.location as { latitude: number; longitude: number };
-				references.push({
-					name: String(t.name),
-					url: `${env.origin}/trail/${String(t.slug)}`,
-					sourceId,
-					coordinate: [loc.longitude, loc.latitude]
-				});
-			};
-			for (const list of parts.lists) {
-				for (const item of list.items as Json[]) {
-					if (item.type === 'trail') addTrail(item.trail as Json);
+			for (const { items } of parts.lists) {
+				for (const item of items) {
+					const t = parts.trails.find((candidate) => candidate.id === item.trailId);
+					if (!t || references.some((r) => r.sourceId === String(t.id))) continue;
+					const loc = t.location as { latitude: number; longitude: number };
+					references.push({
+						name: String(t.name),
+						url: `${env.origin}/trail/${String(t.slug)}`,
+						sourceId: String(t.id),
+						coordinate: [loc.longitude, loc.latitude]
+					});
 				}
 			}
-			for (const c of parts.completed) addTrail(c.trail as Json);
 			const ids = {
-				tracks: parts.activities.filter((a) => a.own).map((a) => String(a.id)),
-				routes: ownMaps.map((m) => String(m.id)),
-				waypoints: ownMaps.flatMap((m) =>
-					(m.summary.waypoints as { id: number }[]).map((w) => String(w.id))
+				tracks: parts.tracks.filter((a) => a.own).map((a) => String(a.id)),
+				routes: parts.maps.filter((m) => m.own).map((m) => String(m.id)),
+				// Waypoints come out in the order their maps are read: recordings, then routes.
+				waypoints: own.flatMap((l) =>
+					(l.detail.waypoints as { id: number }[]).map((w) => String(w.id))
 				),
 				areas: [] as string[],
 				photos: parts.photos.filter((p) => p.own).map((p) => String(p.json.id))
 			};
-			const ownLists = parts.lists.filter((l) => (l.user as { id: number }).id === ME_ID).length;
 			return {
 				account: { id: String(ME_ID), displayName: 'Test H.' },
 				counts: {
@@ -259,7 +329,8 @@ function finish(
 					routes: ids.routes.length,
 					waypoints: ids.waypoints.length,
 					areas: 0,
-					collections: ownLists + (parts.completed.length > 0 ? 1 : 0),
+					// Lists without items are not exported.
+					collections: parts.lists.filter((l) => l.items.length > 0).length,
 					photos: ids.photos.length
 				},
 				ids,
@@ -268,11 +339,11 @@ function finish(
 		},
 		objects(): AllTrailsObjects {
 			return {
-				me: ME,
-				activities: parts.activities.map(({ summary, detail }) => ({ summary, detail })),
+				me,
+				tracks: parts.tracks.map(({ summary, detail }) => ({ summary, detail })),
 				maps: parts.maps.map(({ summary, detail }) => ({ summary, detail })),
 				lists: parts.lists,
-				completed: parts.completed,
+				trails: parts.trails,
 				photos: parts.photos.map((p) => p.json)
 			};
 		}
@@ -280,17 +351,25 @@ function finish(
 }
 
 function buildSmall(env: Env): AllTrailsData {
-	const activities = [
-		buildLine('activity', {
+	const tracks = [
+		buildLine(env, 'track', {
 			id: 810001,
 			name: NAMES.slashes,
 			notes: 'Great morning. Saw two marmots.',
 			day: 2,
 			activityType: 'hiking',
 			start: [36.77012, -118.37044],
-			segments: [150]
+			segments: [150],
+			waypoints: [
+				{
+					id: 830010,
+					name: 'Marmot rock',
+					description: 'They live here.',
+					at: [36.77188, -118.36907]
+				}
+			]
 		}),
-		buildLine('activity', {
+		buildLine(env, 'track', {
 			id: 810002,
 			name: NAMES.accents,
 			notes: 'Très venteux.',
@@ -300,7 +379,7 @@ function buildSmall(env: Env): AllTrailsData {
 			start: [36.75533, -118.35208],
 			segments: [90]
 		}),
-		buildLine('activity', {
+		buildLine(env, 'track', {
 			id: 819001,
 			name: 'Club run with friends',
 			own: false,
@@ -309,7 +388,7 @@ function buildSmall(env: Env): AllTrailsData {
 			start: [36.79121, -118.33067],
 			segments: [40]
 		}),
-		buildLine('activity', {
+		buildLine(env, 'track', {
 			id: 810003,
 			name: NAMES.duplicate,
 			notes: 'Paused at the lake, so two segments.',
@@ -318,7 +397,7 @@ function buildSmall(env: Env): AllTrailsData {
 			start: [36.76208, -118.38115],
 			segments: [60, 45]
 		}),
-		buildLine('activity', {
+		buildLine(env, 'track', {
 			id: 810004,
 			name: NAMES.duplicate,
 			day: 14,
@@ -329,7 +408,7 @@ function buildSmall(env: Env): AllTrailsData {
 		})
 	];
 	const maps = [
-		buildLine('map', {
+		buildLine(env, 'map', {
 			id: 820001,
 			name: NAMES.emoji,
 			description: 'Two-night loop with a layover day.',
@@ -348,7 +427,7 @@ function buildSmall(env: Env): AllTrailsData {
 				{ id: 830002, name: 'Water <last reliable>', description: '', at: [36.75307, -118.39011] }
 			]
 		}),
-		buildLine('map', {
+		buildLine(env, 'map', {
 			id: 820002,
 			name: NAMES.long,
 			description: '',
@@ -367,7 +446,7 @@ function buildSmall(env: Env): AllTrailsData {
 				{ id: 830004, name: 'Bear box 🐻', description: 'Shared.', at: [36.78391, -118.34377] }
 			]
 		}),
-		buildLine('map', {
+		buildLine(env, 'map', {
 			id: 820003,
 			name: 'Gravel loop',
 			description: 'Mostly fire roads.',
@@ -377,113 +456,140 @@ function buildSmall(env: Env): AllTrailsData {
 			segments: [70]
 		})
 	];
-	const [trailA, trailB, trailC] = [trail(0), trail(1), trail(2)];
+	const trails = [trail(0), trail(1), trail(2)];
 	const listTime = BASE_EPOCH + 4 * DAY;
-	const lists: Json[] = [
+	const list = (
+		id: number,
+		type: string,
+		name: string,
+		description: string,
+		isPrivate: boolean
+	): Json => ({
+		id,
+		order: null,
+		type,
+		slug: null,
+		private: isPrivate,
+		contentPrivacy: `urn:alltrails:visibility:${isPrivate ? 'private' : 'public'}`,
+		ownerId: ME_ID,
+		isCollaborative: false,
+		// Stale on the real API too: it said 0 for a list that had an item.
+		metadata: { created: null, itemsCount: 0, status: 'A', updated: null },
+		name,
+		description,
+		user: user(true)
+	});
+	const item = (
+		id: number,
+		listId: number,
+		order: number,
+		trailId: number,
+		notes: string | null
+	): Json => ({
+		id,
+		listId,
+		type: 'trail',
+		order,
+		notes,
+		trailId,
+		metadata: {
+			status: 'A',
+			created: isoUtc(listTime + order * 60),
+			updated: isoUtc(listTime + DAY)
+		}
+	});
+	const lists = [
 		{
-			id: 840001,
-			name: 'Summer goals / 2024',
-			description: 'Things to do before the snow.',
-			private: false,
-			createdAt: listTime,
-			updatedAt: listTime + 9 * DAY,
-			user: ME_USER,
+			list: list(840001, 'user-built-in', 'Favorites', '', false),
 			items: [
-				{ type: 'trail', trail: trailA },
-				{ type: 'trail', trail: trailB },
-				{ type: 'map', id: 820001 },
-				{ type: 'activity', id: 810001 }
+				item(841001, 840001, 0, 850001, 'Start before 7am; bring 3L of water.'),
+				item(841002, 840001, 1, 850002, null)
 			]
 		},
+		{ list: list(840002, 'user-built-in', 'Want to go', '', false), items: [] },
 		{
-			id: 840002,
-			name: 'Quick ones',
-			description: '',
-			private: true,
-			createdAt: listTime + DAY,
-			updatedAt: listTime + 2 * DAY,
-			user: ME_USER,
-			items: [{ type: 'trail', trail: trailA }]
+			list: list(
+				840003,
+				'user-custom',
+				'Summer goals / 2024',
+				'Things to do before the snow.',
+				true
+			),
+			items: [item(841003, 840003, 0, 850001, null), item(841004, 840003, 1, 850003, null)]
 		}
 	];
-	const completed: Json[] = [
+	const specs: PhotoSpecA[] = [
 		{
-			trail: trailA,
-			completedAt: isoDate(BASE_EPOCH + 25 * DAY),
-			rating: 5,
-			review: 'Steep but worth it. Go early to beat the crowds.',
-			privateNotes: 'Parked at the lodge; 6h car to car.'
-		},
-		{
-			trail: trailC,
-			completedAt: isoDate(BASE_EPOCH + 40 * DAY),
-			rating: null,
-			review: null,
-			privateNotes: 'Easy stroll with the kids.'
-		}
-	];
-	const photos = [
-		photo(env, {
 			id: 860001,
 			title: 'Marmot!',
-			caption: 'He wanted my sandwich',
+			description: 'He wanted my sandwich',
 			day: 2,
-			taken: true,
 			at: [36.77188, -118.36907],
-			attached: { type: 'activity', id: 810001 },
-			original: 52_340,
-			large: 21_077
-		}),
-		photo(env, {
+			map: 810001,
+			size: 52_340
+		},
+		{
 			id: 869001,
 			title: 'Club photo',
-			caption: SENTINELS.otherUserDescription,
+			description: '',
 			own: false,
 			day: 7,
-			taken: true,
 			at: [36.79133, -118.33041],
-			attached: { type: 'activity', id: 819001 },
-			original: 9_001,
-			large: 4_003
-		}),
-		photo(env, {
+			map: 819001,
+			size: 9_001
+		},
+		{
 			id: 860002,
 			title: '',
-			caption: '',
+			description: '',
 			day: 1,
-			taken: false,
 			at: null,
-			attached: { type: 'map', id: 820001 },
+			map: 820001,
 			mime: 'image/png',
-			original: null,
-			large: 15_555
-		}),
-		photo(env, {
+			size: 15_555
+		},
+		{
 			id: 860003,
 			title: 'Top of the falls',
-			caption: 'From my hike on the falls trail',
+			description: 'From my hike on the falls trail',
 			day: 25,
-			taken: true,
 			at: [36.76604, -118.37712],
-			attached: { type: 'trail', id: 850001 },
-			original: 33_333,
-			large: 11_111
-		})
+			map: null,
+			trailId: 850001,
+			size: 33_333
+		}
 	];
-	return finish(env, { activities, maps, lists, completed, photos });
+	const photos = specs.map(photo);
+	attach(
+		[...tracks, ...maps],
+		photos.map((p, i) => ({ photo: p, map: specs[i]!.map }))
+	);
+	return finish(env, { tracks, maps, lists, trails, photos });
 }
 
 export function buildAllTrails(env: Env, ds: ResolvedDataset): AllTrailsData {
 	if (ds.kind === 'large') {
 		// The large dataset is Gaia-only; this platform is an empty (but valid) account.
-		return finish(env, { activities: [], maps: [], lists: [], completed: [], photos: [] });
+		return finish(env, { tracks: [], maps: [], lists: [], trails: [], photos: [] });
 	}
 	return buildSmall(env);
 }
 
 // ---------------------------------------------------------------------------------------------
 
-const NOT_FOUND = json(404, { error: 'not_found' });
+function meta(items: number): Json {
+	return { status: 'ok', items, timestamp: isoUtc(BASE_EPOCH) };
+}
+
+function fail(status: number, code: string, message: string): Reply {
+	return {
+		kind: 'json',
+		status,
+		body: { errors: [{ code, message, target: null, debug: null }], meta: { status: 'error' } }
+	};
+}
+
+const NOT_FOUND = fail(404, 'not_found', 'Not found.');
 
 function encodeCursor(offset: number): string {
 	return Buffer.from(`o:${offset}`, 'utf8').toString('base64url');
@@ -495,96 +601,144 @@ function decodeCursor(cursor: string | null): number {
 	return m ? Number(m[1]) : Number.NaN;
 }
 
-function listing(ds: ResolvedDataset, req: ApiRequest, items: Json[]): Reply {
-	const offset = decodeCursor(req.query.get('cursor'));
+/** `{ <key>: [...], meta, pageInfo }`, paged with `after`. Any other cursor name is ignored. */
+function listing(ds: ResolvedDataset, req: ApiRequest, key: string, items: Json[]): Reply {
+	const offset = decodeCursor(req.query.get('after'));
 	if (!Number.isFinite(offset) || offset > items.length) {
-		return json(400, { error: 'invalid_cursor' });
+		return fail(400, 'invalid_cursor', 'The cursor is invalid.');
 	}
-	const requested = parseIntParam(req.query.get('limit'), 50);
+	const requested = parseIntParam(req.query.get('limit'), 20);
 	const limit = Math.min(
-		Number.isFinite(requested) && requested >= 1 ? requested : 50,
+		Number.isFinite(requested) && requested >= 1 ? requested : 20,
 		ds.maxPageSize
 	);
 	const end = Math.min(offset + limit, items.length);
+	const page = items.slice(offset, end);
+	const hasNextPage = end < items.length;
 	return {
 		kind: 'json',
 		status: 200,
-		listingKey: 'items',
+		listingKey: key,
 		body: {
-			items: items.slice(offset, end),
-			meta: { nextCursor: end < items.length ? encodeCursor(end) : null }
+			[key]: page,
+			meta: meta(page.length),
+			pageInfo: {
+				totalItemCount: items.length,
+				itemCount: page.length,
+				hasNextPage,
+				...(hasNextPage ? { nextCursor: encodeCursor(end) } : {})
+			}
 		}
 	};
 }
 
-/** Authenticated `/api/alltrails/v3/*` requests. */
+function one(key: string, item: Json): Reply {
+	return { kind: 'json', status: 200, body: { [key]: [item], meta: meta(1) } };
+}
+
+/** Authenticated `/api/alltrails/*` requests. */
 export function handleAllTrailsApi(
 	data: AllTrailsData,
 	ds: ResolvedDataset,
 	req: ApiRequest
 ): Reply {
 	if (req.method !== 'GET' && req.method !== 'HEAD')
-		return json(405, { error: 'method_not_allowed' });
+		return fail(405, 'method_not_allowed', 'Method not allowed.');
 	if (!req.path.startsWith(`${PREFIX}/`)) return NOT_FOUND;
+	// The real site's bot protection turns away API calls that name /robots.txt as their referrer:
+	// a 403 whose JSON body is nothing but the address of a challenge page.
+	if (String(req.headers.referer ?? '').endsWith('/robots.txt')) {
+		return { kind: 'json', status: 403, body: { url: 'https://challenge.invalid/captcha' } };
+	}
+	if (req.headers['x-at-key'] === undefined)
+		return fail(400, 'missing_key', 'The API key is missing.');
+	if (req.headers['x-at-key'] !== FAKE_AT_KEY)
+		return fail(400, 'invalid_key', 'The API key is invalid.');
 	const rest = req.path.slice(PREFIX.length + 1).replace(/\/$/, '');
-	if (rest === 'me') return json(200, data.me);
+	if (rest === 'me') return one('users', data.me);
 
-	const user = /^users\/([^/]+)\/(stats|activities|maps|lists|completed|photos)$/.exec(rest);
-	if (user) {
-		if (user[1] !== String(ME_ID)) return json(403, { error: 'forbidden' });
-		switch (user[2]) {
-			case 'stats':
-				return json(200, {
-					activities: data.activities.length,
-					maps: data.maps.length,
-					photos: data.photos.length,
-					completed: data.completed.length
-				});
-			case 'activities':
-				return listing(
-					ds,
-					req,
-					data.activities.map((a) => a.summary)
-				);
-			case 'maps':
-				return listing(
-					ds,
-					req,
-					data.maps.map((m) => m.summary)
-				);
-			case 'lists':
-				return listing(ds, req, data.lists);
-			case 'completed':
-				return listing(ds, req, data.completed);
-			default:
-				return listing(
-					ds,
-					req,
-					data.photos.map((p) => p.json)
-				);
+	const owned = /^users\/([^/]+)\/(maps|lists|photos)$/.exec(rest);
+	if (owned) {
+		if (owned[1] !== String(ME_ID)) return fail(403, 'forbidden', 'Forbidden.');
+		if (owned[2] === 'maps') {
+			// Without a presentation type the real listing mixes recordings and custom routes.
+			const type = req.query.get('presentation_type');
+			const lines = [...data.maps, ...data.tracks].filter(
+				(l) => type === null || l.summary.presentationType === type
+			);
+			return listing(
+				ds,
+				req,
+				'maps',
+				lines.map((l) => l.summary)
+			);
 		}
+		if (owned[2] === 'lists')
+			return listing(
+				ds,
+				req,
+				'lists',
+				data.lists.map((l) => l.list)
+			);
+		return listing(
+			ds,
+			req,
+			'photos',
+			data.photos.map((p) => p.json)
+		);
 	}
 
-	const item = /^(activities|maps)\/(\d+)(\/export)?$/.exec(rest);
-	if (item) {
-		const lines = item[1] === 'activities' ? data.activities : data.maps;
-		const line = lines.find((l) => l.id === Number(item[2]));
+	const map = /^maps\/(\d+)$/.exec(rest);
+	if (map) {
+		const line = [...data.tracks, ...data.maps].find((l) => l.id === Number(map[1]));
 		if (!line) return NOT_FOUND;
-		if (item[3] === undefined) return json(200, line.detail);
-		if (req.query.get('format') !== 'gpx') return json(400, { error: 'unsupported_format' });
-		return { kind: 'bytes', status: 200, contentType: 'application/gpx+xml', body: line.gpx };
+		// Geometry, waypoints and photo links only come with `detail=deep`.
+		return one('maps', req.query.get('detail') === 'deep' ? line.detail : line.summary);
 	}
-	return NOT_FOUND;
+	const items = /^lists\/(\d+)\/items$/.exec(rest);
+	if (items) {
+		const found = data.lists.find((l) => l.list.id === Number(items[1]));
+		if (!found) return NOT_FOUND;
+		return {
+			kind: 'json',
+			status: 200,
+			listingKey: 'listItems',
+			body: { listItems: found.items, meta: meta(found.items.length) }
+		};
+	}
+	const trailMatch = /^trails\/(\d+)$/.exec(rest);
+	if (trailMatch) {
+		const found = data.trails.find((t) => t.id === Number(trailMatch[1]));
+		return found ? one('trails', found) : NOT_FOUND;
+	}
+	return fail(400, 'method_not_found', `The api call ${rest} could not be found.`);
 }
 
-/** CDN host: `/p/<id>/<rendition>`. */
-export function handleAllTrailsCdn(data: AllTrailsData, path: string): Reply | null {
-	const m = /^\/p\/(\d+)\/([a-z]+)$/.exec(path);
+/**
+ * `/api/alltrails/v3/photos/<id>/image?key=…&size=…` on the site host: needs the key but no
+ * session, and redirects to the image host. Every size gives the same (largest) file.
+ */
+export function allTrailsPhotoRedirect(
+	data: AllTrailsData,
+	env: Env,
+	path: string,
+	query: URLSearchParams
+): { location: string } | { status: number } | null {
+	const m = /^\/api\/alltrails\/(?:v3\/)?photos\/(\d+)\/image$/.exec(path);
 	if (!m) return null;
-	const spec = data.photos.find((p) => p.json.id === Number(m[1]))?.renditions[m[2]!];
-	return spec ? { kind: 'photo', spec } : null;
+	if (query.get('key') !== FAKE_AT_KEY) return { status: 400 };
+	if (!data.photos.some((p) => p.json.id === Number(m[1]))) return { status: 404 };
+	return { location: `${env.cdnOrigin}/p/${m[1]!}/full` };
+}
+
+/** Image host: `/p/<id>/full`. */
+export function handleAllTrailsCdn(data: AllTrailsData, path: string): Reply | null {
+	const m = /^\/p\/(\d+)\/full$/.exec(path);
+	if (!m) return null;
+	const found = data.photos.find((p) => p.json.id === Number(m[1]));
+	return found ? { kind: 'photo', spec: found.spec } : null;
 }
 
 export function trailBySlug(slug: string): { name: string } | undefined {
-	return PLATFORM_TRAILS.find((t) => t.slug === slug);
+	return PLATFORM_TRAILS.find((t) => slug === t.slug || slug.endsWith(`/${t.slug}`));
 }

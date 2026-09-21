@@ -12,6 +12,23 @@ function encodeSigned(value: number): string {
 	return out;
 }
 
+/**
+ * AllTrails' "indexed" series: delta-coded pairs of (pointIndex × 100, value), one pair per
+ * point that has a value. `values` are already integers in the platform's unit.
+ */
+export function encodeIndexed(values: readonly (number | null)[]): string {
+	let prevIndex = 0;
+	let prevValue = 0;
+	let out = '';
+	values.forEach((value, index) => {
+		if (value === null) return;
+		out += encodeSigned(index * 100 - prevIndex) + encodeSigned(value - prevValue);
+		prevIndex = index * 100;
+		prevValue = value;
+	});
+	return out;
+}
+
 export function encodePolyline(
 	points: readonly (readonly [number, number])[],
 	precision = 5

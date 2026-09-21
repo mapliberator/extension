@@ -1,94 +1,88 @@
 {
-	"items": [
+	"lists": [
 		{
 			"id": 840001,
-			"name": "Summer goals / 2024",
-			"description": "Things to do before the snow.",
+			"order": null,
+			"type": "user-built-in",
+			"slug": null,
 			"private": false,
-			"createdAt": 1717683069,
-			"updatedAt": 1718460669,
+			"contentPrivacy": "urn:alltrails:visibility:public",
+			"ownerId": 7001,
+			"isCollaborative": false,
+			"metadata": {
+				"created": null,
+				"itemsCount": 0,
+				"status": "A",
+				"updated": null
+			},
+			"name": "Favorites",
+			"description": "",
 			"user": {
 				"id": 7001,
-				"name": "Test Hiker"
-			},
-			"items": [
-				{
-					"type": "trail",
-					"trail": {
-						"id": 850001,
-						"name": "Upper Yosemite Falls Trail",
-						"slug": "upper-yosemite-falls-trail",
-						"description": "SENTINEL-TRAIL-DESCRIPTION editorial text owned by the platform (Upper Yosemite Falls Trail)",
-						"location": {
-							"latitude": 37.74235,
-							"longitude": -119.60214
-						},
-						"polyline": {
-							"pointsData": "uhkeF`jqxUkOuPuIgLuIgLuIgL"
-						},
-						"user": null
-					}
-				},
-				{
-					"type": "trail",
-					"trail": {
-						"id": 850002,
-						"name": "Mist Trail to Vernal Fall",
-						"slug": "mist-trail-to-vernal-fall",
-						"description": "SENTINEL-TRAIL-DESCRIPTION editorial text owned by the platform (Mist Trail to Vernal Fall)",
-						"location": {
-							"latitude": 37.73264,
-							"longitude": -119.55801
-						},
-						"polyline": {
-							"pointsData": "uhkeF`jqxUkOuPoJmJoJmJoJmJoJmJ"
-						},
-						"user": null
-					}
-				},
-				{
-					"type": "map",
-					"id": 820001
-				},
-				{
-					"type": "activity",
-					"id": 810001
-				}
-			]
+				"username": "test-hiker",
+				"firstName": "Test",
+				"lastName": "Hiker",
+				"slug": "test-hiker"
+			}
 		},
 		{
 			"id": 840002,
-			"name": "Quick ones",
+			"order": null,
+			"type": "user-built-in",
+			"slug": null,
+			"private": false,
+			"contentPrivacy": "urn:alltrails:visibility:public",
+			"ownerId": 7001,
+			"isCollaborative": false,
+			"metadata": {
+				"created": null,
+				"itemsCount": 0,
+				"status": "A",
+				"updated": null
+			},
+			"name": "Want to go",
 			"description": "",
-			"private": true,
-			"createdAt": 1717769469,
-			"updatedAt": 1717855869,
 			"user": {
 				"id": 7001,
-				"name": "Test Hiker"
+				"username": "test-hiker",
+				"firstName": "Test",
+				"lastName": "Hiker",
+				"slug": "test-hiker"
+			}
+		},
+		{
+			"id": 840003,
+			"order": null,
+			"type": "user-custom",
+			"slug": null,
+			"private": true,
+			"contentPrivacy": "urn:alltrails:visibility:private",
+			"ownerId": 7001,
+			"isCollaborative": false,
+			"metadata": {
+				"created": null,
+				"itemsCount": 0,
+				"status": "A",
+				"updated": null
 			},
-			"items": [
-				{
-					"type": "trail",
-					"trail": {
-						"id": 850001,
-						"name": "Upper Yosemite Falls Trail",
-						"slug": "upper-yosemite-falls-trail",
-						"description": "SENTINEL-TRAIL-DESCRIPTION editorial text owned by the platform (Upper Yosemite Falls Trail)",
-						"location": {
-							"latitude": 37.74235,
-							"longitude": -119.60214
-						},
-						"polyline": {
-							"pointsData": "uhkeF`jqxUkOuPuIgLuIgLuIgL"
-						},
-						"user": null
-					}
-				}
-			]
+			"name": "Summer goals / 2024",
+			"description": "Things to do before the snow.",
+			"user": {
+				"id": 7001,
+				"username": "test-hiker",
+				"firstName": "Test",
+				"lastName": "Hiker",
+				"slug": "test-hiker"
+			}
 		}
 	],
 	"meta": {
-		"nextCursor": null
+		"status": "ok",
+		"items": 3
+	},
+	"pageInfo": {
+		"totalItemCount": 3,
+		"itemCount": 3,
+		"hasNextPage": false
 	}
 }

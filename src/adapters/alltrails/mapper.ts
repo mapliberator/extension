@@ -2,7 +2,6 @@
 import type {
 	CollectionMemberRecord,
 	CollectionRecord,
-	LineStats,
 	PhotoRecord,
 	ReferenceRecord,
 	TrackPoint,
@@ -10,30 +9,30 @@ import type {
 	WaypointRecord
 } from '../../shared/models';
 import { finiteOrNull, nonEmpty, toUtcTimestamp } from '../support';
-import { decodePolyline } from './polyline';
+import { decodeIndexed, decodePolyline } from './polyline';
 import type {
-	AllTrailsActivity,
-	AllTrailsCompleted,
 	AllTrailsList,
+	AllTrailsListItem,
 	AllTrailsMap,
-	AllTrailsMapWaypoint,
+	AllTrailsMapDetail,
 	AllTrailsPhoto,
-	AllTrailsSegments,
-	AllTrailsTrail
+	AllTrailsSegment,
+	AllTrailsTrail,
+	AllTrailsWaypoint
 } from './schemas';
 
 export const UNTITLED = 'Untitled';
 
 export interface AllTrailsUrls {
-	activity(id: number): string;
-	map(id: number): string;
-	list(id: number): string;
+	recording(map: AllTrailsMap): string;
+	route(map: AllTrailsMap): string;
 	trail(trail: AllTrailsTrail): string;
-	photo(id: number): string;
+	/** The image itself: needs the app key, not the session, and redirects to the image host. */
+	photoFile(id: number): string;
 }
 
-function visibility(isPrivate: boolean | undefined): Visibility {
-	return isPrivate === undefined ? null : isPrivate ? 'private' : 'public';
+function visibility(isPrivate: boolean | null | undefined): Visibility {
+	return isPrivate === undefined || isPrivate === null ? null : isPrivate ? 'private' : 'public';
 }
 
 export function displayName(user: { firstName?: string | null; lastName?: string | null }): string {
@@ -43,146 +42,147 @@ export function displayName(user: { firstName?: string | null; lastName?: string
 	return first ?? last ?? 'AllTrails user';
 }
 
-function lineStats(line: AllTrailsActivity | AllTrailsMap, withDuration: boolean): LineStats {
+/** A recording becomes a track, a custom route a route. */
+export function mapLine(kind: 'track' | 'route', map: AllTrailsMap, urls: AllTrailsUrls) {
 	return {
-		distanceMeters: finiteOrNull(line.summaryStats?.distanceTotal),
-		ascentMeters: finiteOrNull(line.summaryStats?.elevationGain),
-		durationSeconds: withDuration ? finiteOrNull(line.summaryStats?.timeTotal) : null
-	};
-}
-
-export function mapActivity(activity: AllTrailsActivity, urls: AllTrailsUrls) {
-	return {
-		kind: 'track' as const,
-		name: nonEmpty(activity.name) ?? UNTITLED,
-		description: nonEmpty(activity.notes),
-		createdAt: toUtcTimestamp(activity.createdAt),
-		updatedAt: toUtcTimestamp(activity.updatedAt),
-		visibility: visibility(activity.private),
-		tags: [] as string[],
-		activityType: activity.activityType?.uid ?? null,
-		stats: lineStats(activity, true),
-		source: { id: String(activity.id), url: urls.activity(activity.id), raw: activity }
-	};
-}
-
-export function mapMap(map: AllTrailsMap, urls: AllTrailsUrls) {
-	// Embedded waypoints are exported as waypoints of their own, not duplicated into raw.
-	const { waypoints: _waypoints, ...raw } = map;
-	return {
-		kind: 'route' as const,
+		kind,
 		name: nonEmpty(map.name) ?? UNTITLED,
 		description: nonEmpty(map.description),
-		createdAt: toUtcTimestamp(map.createdAt),
-		updatedAt: toUtcTimestamp(map.updatedAt),
+		createdAt: toUtcTimestamp(map.metadata?.created ?? map.created_at),
+		updatedAt: toUtcTimestamp(map.metadata?.updated),
 		visibility: visibility(map.private),
 		tags: [] as string[],
-		activityType: map.activityType?.uid ?? null,
-		stats: lineStats(map, false),
-		source: { id: String(map.id), url: urls.map(map.id), raw }
+		activityType: nonEmpty(map.activity?.uid),
+		stats: {
+			distanceMeters: finiteOrNull(map.summaryStats?.distanceTotal),
+			ascentMeters: finiteOrNull(map.summaryStats?.elevationGain),
+			durationSeconds: kind === 'track' ? finiteOrNull(map.summaryStats?.duration) : null
+		},
+		source: {
+			id: String(map.id),
+			url: kind === 'track' ? urls.recording(map) : urls.route(map),
+			raw: map
+		}
 	};
 }
 
-export function mapSegments(detail: AllTrailsSegments): TrackPoint[][] {
-	return detail.segments.map(({ polyline }) => {
-		const points = decodePolyline(polyline.pointsData);
-		const elevations =
-			polyline.elevationData?.length === points.length ? polyline.elevationData : null;
-		const times = polyline.timeData?.length === points.length ? polyline.timeData : null;
-		return points.map(([lat, lon], index) => ({
+function bySequence(segments: AllTrailsSegment[]): AllTrailsSegment[] {
+	return [...segments].sort((a, b) => (a.sequence_num ?? 0) - (b.sequence_num ?? 0));
+}
+
+/**
+ * Elevation is metres × 10⁵. Time counts hundredths of a second from an origin the platform
+ * does not document, so it is read relative to the segment's own `dateTimeStart`.
+ */
+function mapSegment(segment: AllTrailsSegment): TrackPoint[] {
+	const { polyline } = segment;
+	const elevations = polyline.indexedElevationData
+		? decodeIndexed(polyline.indexedElevationData)
+		: null;
+	const times = polyline.indexedTimeData ? decodeIndexed(polyline.indexedTimeData) : null;
+	const start = segment.dateTimeStart ? Date.parse(segment.dateTimeStart) : Number.NaN;
+	const firstTick = times?.values().next().value;
+	return decodePolyline(polyline.pointsData).map(([lat, lon], index) => {
+		const elevation = elevations?.get(index);
+		const tick = times?.get(index);
+		const timed = tick !== undefined && firstTick !== undefined && Number.isFinite(start);
+		return {
 			lat,
 			lon,
-			ele: finiteOrNull(elevations?.[index]),
-			time: toUtcTimestamp(times?.[index] ?? null)
-		}));
+			ele: elevation === undefined ? null : elevation / 1e5,
+			time: timed ? toUtcTimestamp((start + (tick - firstTick) * 10) / 1000) : null
+		};
 	});
 }
 
-export function mapMapWaypoint(
-	waypoint: AllTrailsMapWaypoint,
+export function mapSegments(detail: AllTrailsMapDetail): TrackPoint[][] {
+	const segments = [
+		...(detail.tracks ?? []).flatMap((track) => bySequence(track.lineTimedSegments)),
+		...(detail.routes ?? []).flatMap((route) => bySequence(route.lineSegments))
+	];
+	return segments.map(mapSegment).filter((points) => points.length > 0);
+}
+
+/** Waypoints only exist inside the recording or route they were dropped on. */
+export function mapWaypoint(
+	waypoint: AllTrailsWaypoint,
+	kind: 'track' | 'route',
 	map: AllTrailsMap,
 	urls: AllTrailsUrls
 ): WaypointRecord {
+	// The embedded `user` block is a name and a portrait: not something to archive.
+	const { user: _user, ...raw } = waypoint as AllTrailsWaypoint & { user?: unknown };
 	return {
 		kind: 'waypoint',
 		name: nonEmpty(waypoint.name) ?? UNTITLED,
 		description: nonEmpty(waypoint.description),
-		createdAt: toUtcTimestamp(waypoint.createdAt),
+		createdAt: null,
 		updatedAt: null,
 		visibility: visibility(map.private),
 		tags: [],
 		position: [waypoint.location.longitude, waypoint.location.latitude],
-		icon: null,
+		icon: nonEmpty(waypoint.waypointCategory?.uid),
 		source: {
 			id: String(waypoint.id),
-			url: urls.map(map.id),
-			raw: { ...waypoint, mapId: map.id }
+			url: kind === 'track' ? urls.recording(map) : urls.route(map),
+			raw
 		}
 	};
 }
 
-/** Platform trail → name, link, one coordinate. Never its description, geometry or photos. */
-export function mapTrailReference(trail: AllTrailsTrail, urls: AllTrailsUrls): ReferenceRecord {
+/** Platform trail → name, link, one coordinate. Never its overview, geometry or photos. */
+export function mapTrailReference(
+	trail: AllTrailsTrail,
+	item: AllTrailsListItem,
+	urls: AllTrailsUrls
+): ReferenceRecord {
+	const latitude = trail.location?.latitude;
+	const longitude = trail.location?.longitude;
+	const notes = nonEmpty(item.notes);
 	return {
 		name: trail.name,
 		source: { id: String(trail.id), url: urls.trail(trail) },
-		coordinate: trail.location ? [trail.location.longitude, trail.location.latitude] : null
+		coordinate:
+			typeof latitude === 'number' && typeof longitude === 'number' ? [longitude, latitude] : null,
+		// The user's own words ride along; nothing of the platform's does.
+		...(notes ? { annotations: { notes } } : {})
 	};
 }
 
-export function mapList(list: AllTrailsList, urls: AllTrailsUrls): CollectionRecord {
-	const members: CollectionMemberRecord[] = list.items.map((item) => {
-		switch (item.type) {
-			case 'trail':
-				return { kind: 'reference', reference: mapTrailReference(item.trail, urls) };
-			case 'map':
-				return { kind: 'object', type: 'route', sourceId: String(item.id) };
-			case 'activity':
-				return { kind: 'object', type: 'track', sourceId: String(item.id) };
-		}
-	});
+export function mapList(list: AllTrailsList, members: CollectionMemberRecord[]): CollectionRecord {
 	return {
 		kind: 'collection',
 		key: String(list.id),
 		name: nonEmpty(list.name) ?? UNTITLED,
 		description: nonEmpty(list.description),
-		createdAt: toUtcTimestamp(list.createdAt),
-		updatedAt: toUtcTimestamp(list.updatedAt),
+		createdAt: null,
+		updatedAt: null,
 		parentSourceId: null,
-		source: { id: String(list.id), url: urls.list(list.id), raw: list },
+		// Lists have no page of their own that is known to be stable.
+		source: { id: String(list.id), url: null, raw: list },
 		members
 	};
 }
 
-/** The user's own review, rating, date and notes ride along with the reference. */
-export function mapCompleted(completed: AllTrailsCompleted, urls: AllTrailsUrls): ReferenceRecord {
-	return {
-		...mapTrailReference(completed.trail, urls),
-		annotations: {
-			completedAt: nonEmpty(completed.completedAt),
-			rating: finiteOrNull(completed.rating),
-			review: nonEmpty(completed.review),
-			notes: nonEmpty(completed.privateNotes)
-		}
-	};
-}
-
-export function mapPhoto(photo: AllTrailsPhoto, urls: AllTrailsUrls): PhotoRecord {
-	const attached = photo.attachedTo;
+export function mapPhoto(
+	photo: AllTrailsPhoto,
+	attachedTo: PhotoRecord['attachedTo'],
+	urls: AllTrailsUrls
+): PhotoRecord {
+	const latitude = photo.location?.latitude;
+	const longitude = photo.location?.longitude;
 	return {
 		kind: 'photo',
 		name: nonEmpty(photo.title),
-		caption: nonEmpty(photo.caption),
-		takenAt: toUtcTimestamp(photo.takenAt),
-		uploadedAt: toUtcTimestamp(photo.createdAt),
-		coordinate: photo.location ? [photo.location.longitude, photo.location.latitude] : null,
-		url: photo.urls.original ?? photo.urls.large,
-		rendition: photo.urls.original ? 'original' : 'largest-available',
-		// Platform trails are not archive objects, so a trail photo is simply unattached.
-		attachedTo:
-			attached && attached.type !== 'trail'
-				? { type: attached.type === 'activity' ? 'track' : 'route', sourceId: String(attached.id) }
-				: null,
-		source: { id: String(photo.id), url: urls.photo(photo.id), raw: photo }
+		caption: nonEmpty(photo.description),
+		takenAt: null,
+		uploadedAt: toUtcTimestamp(photo.metadata?.created),
+		coordinate:
+			typeof latitude === 'number' && typeof longitude === 'number' ? [longitude, latitude] : null,
+		url: urls.photoFile(photo.id),
+		// Every size the site offers tops out at the same file; whether that is the upload is unknown.
+		rendition: 'largest-available',
+		attachedTo,
+		source: { id: String(photo.id), url: null, raw: photo }
 	};
 }

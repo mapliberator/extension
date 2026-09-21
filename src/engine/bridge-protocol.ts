@@ -14,7 +14,9 @@ export const BridgeCommandSchema = z.discriminatedUnion('type', [
 		id: z.number().int(),
 		method: z.literal('GET'),
 		url: z.string(),
-		accept: z.enum(['json', 'text-stream'])
+		accept: z.enum(['json', 'text-stream']),
+		/** Extra request headers an adapter's platform demands (e.g. an app key). */
+		headers: z.record(z.string(), z.string()).optional()
 	}),
 	z.object({ type: z.literal('ack'), id: z.number().int() }),
 	z.object({ type: z.literal('abort'), id: z.number().int() })

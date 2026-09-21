@@ -62,6 +62,8 @@ export interface SessionView {
 	progress: ProgressSnapshot;
 	result: ExportResult | null;
 	failure: string | null;
+	/** Latest reason the source tab was unreachable or dropped; shown while paused for it. */
+	sourceTabNote: string | null;
 }
 
 export class ExportSession {
@@ -91,7 +93,8 @@ export class ExportSession {
 			history: '',
 			progress: this.progress.snapshot(),
 			result: null,
-			failure: null
+			failure: null,
+			sourceTabNote: null
 		};
 		this.controller.subscribe((run) =>
 			this.patch({
@@ -195,20 +198,26 @@ export class ExportSession {
 	private async connect(descriptor: SourceDescriptor): Promise<void> {
 		const timings = timingsForMode(this.mode);
 		let adapter: MapSourceAdapter | null = null;
-		const bridge = new SourceBridge({
-			id: descriptor.id,
-			get bridgeUrl() {
-				return adapter!.bridgeUrl;
+		const bridge = new SourceBridge(
+			{
+				id: descriptor.id,
+				get bridgeUrl() {
+					return adapter!.bridgeUrl;
+				},
+				get loginUrl() {
+					return adapter!.loginUrl;
+				}
 			},
-			get loginUrl() {
-				return adapter!.loginUrl;
-			}
-		});
+			(sourceTabNote) => this.patch({ sourceTabNote })
+		);
 		let lane: Lane | null = null;
 		const transport = createAdapterTransport(
 			bridge,
 			(attempt) => lane!.run(attempt),
-			() => ({ isLoginUrl: (url) => adapter!.isLoginUrl(url) })
+			() => ({
+				isLoginUrl: (url) => adapter!.isLoginUrl(url),
+				isSignedOut: (response) => adapter!.isSignedOut?.(response) === true
+			})
 		);
 		adapter = descriptor.create(transport, this.mode);
 		const apiLane = new Lane(
@@ -456,6 +465,9 @@ export class ExportSession {
 			// Fatal messages are ours and never embed source data.
 			lines.push('', `fatal: ${this.view.failure.split('\n')[0]}`);
 		}
+		lines.push('', 'source tab:');
+		if (!this.bridge || this.bridge.notes.length === 0) lines.push('  no trouble');
+		for (const note of this.bridge?.notes ?? []) lines.push(`  ${note}`);
 		lines.push('', 'state history:');
 		const start = this.controller.history[0]?.at ?? 0;
 		for (const entry of this.controller.history) {

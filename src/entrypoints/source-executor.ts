@@ -82,6 +82,7 @@ function serve(port: Browser.runtime.Port): void {
 		method: 'GET';
 		url: string;
 		accept: 'json' | 'text-stream';
+		headers?: Record<string, string>;
 	}): Promise<void> {
 		const { id } = command;
 		let url: URL;
@@ -101,8 +102,12 @@ function serve(port: Browser.runtime.Port): void {
 				method: 'GET',
 				credentials: 'include',
 				redirect: 'follow',
+				// The parking page's address says nothing about the request and is nobody's business.
+				// (AllTrails also turns away any API call that names /robots.txt as its referrer.)
+				referrerPolicy: 'no-referrer',
 				signal: controller.signal,
 				headers: {
+					...command.headers,
 					Accept: command.accept === 'json' ? 'application/json' : 'application/gpx+xml, */*'
 				}
 			});

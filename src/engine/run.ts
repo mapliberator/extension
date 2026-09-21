@@ -27,6 +27,7 @@ import type {
 } from '../shared/models';
 import { PLURAL, type ErrorEntry, type Manifest, type ObjectType } from '../shared/schemas';
 import type { SourceBridge } from './bridge';
+import type { ClassifyContext } from './classify';
 import { fetchNativeGpx } from './transport';
 import { parseRetryAfter, type AttemptOutcome, type Lane } from './pacing';
 import type { ProgressStore } from './progress';
@@ -82,7 +83,10 @@ async function forEachLimited<T>(
 export async function runExport(context: RunContext): Promise<RunResult> {
 	const { adapter, selection, worker, controller, progress } = context;
 	const adapterTag = `${adapter.id}@${adapter.version}`;
-	const classifyContext = { isLoginUrl: (url: string) => adapter.isLoginUrl(url) };
+	const classifyContext: ClassifyContext = {
+		isLoginUrl: (url) => adapter.isLoginUrl(url),
+		isSignedOut: (response) => adapter.isSignedOut?.(response) === true
+	};
 
 	/** `${type}:${sourceId}` → archive ID, for exported objects and for failed ones alike. */
 	const idMap = new Map<string, string>();

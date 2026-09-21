@@ -1,10 +1,15 @@
 /**
- * AllTrails adapter. Same interface as every other adapter; any engine change it forces is an
- * interface bug (PRD §6.5, Phase 5). Gentler pacing than Gaia.
+ * AllTrails adapter, written against docs/phase0-findings.md. Same interface as every other
+ * adapter (PRD §6.5). Gentler pacing than Gaia.
+ *
+ * There is no GPX export to ask for: geometry is decoded from the map detail, which is also the
+ * only place waypoints and photo attachments live. Details are therefore fetched once and kept.
  */
 import type { z } from 'zod';
+import { AdapterOutdatedError } from '../../shared/errors';
 import type {
 	AdapterFactory,
+	CollectionMemberRecord,
 	CollectionRecord,
 	LineRecord,
 	PhotoRecord,
@@ -13,82 +18,134 @@ import type {
 } from '../../shared/models';
 import { sourceHosts } from '../hosts';
 import { parseItem, parseListing } from '../support';
+import { AT_KEY_HEADER, allTrailsKey } from './key';
 import {
 	displayName,
-	mapActivity,
-	mapCompleted,
+	mapLine,
 	mapList,
-	mapMap,
-	mapMapWaypoint,
 	mapPhoto,
 	mapSegments,
+	mapTrailReference,
+	mapWaypoint,
 	type AllTrailsUrls
 } from './mapper';
 import {
-	AllTrailsActivitySchema,
-	AllTrailsCompletedSchema,
-	AllTrailsListSchema,
-	AllTrailsMapSchema,
+	AllTrailsListItemsSchema,
+	AllTrailsListsPageSchema,
+	AllTrailsMapDetailSchema,
+	AllTrailsMapsPageSchema,
 	AllTrailsMeSchema,
-	AllTrailsPhotoSchema,
-	AllTrailsSegmentsSchema,
-	AllTrailsStatsSchema,
-	allTrailsListingSchema
+	AllTrailsPhotosPageSchema,
+	AllTrailsTrailSchema,
+	type AllTrailsMap,
+	type AllTrailsMapDetail,
+	type AllTrailsTrail
 } from './schemas';
 
 const PAGE_LIMIT = 50;
-export const COMPLETED_KEY = 'mapliberator:completed';
+type Kind = 'track' | 'route';
+const PRESENTATION: Record<Kind, string> = { track: 'track', route: 'map' };
 
 export const createAllTrailsAdapter: AdapterFactory = (transport, mode) => {
 	const hosts = sourceHosts(mode).alltrails;
 	const origin = hosts.origins[0]!;
-	const api = `${origin}/api/alltrails/v3`;
+	const api = `${origin}/api/alltrails`;
 	const identity = { label: 'AllTrails', version: '1.0.0' };
+	const key = allTrailsKey(mode);
 	const urls: AllTrailsUrls = {
-		activity: (id) => `${origin}/explore/recording/${id}`,
-		map: (id) => `${origin}/explore/map/${id}`,
-		list: (id) => `${origin}/lists/${id}`,
+		recording: (map) => `${origin}/explore/recording/${map.slug ?? map.id}`,
+		route: (map) => `${origin}/explore/map/${map.slug ?? map.id}`,
 		trail: (trail) => `${origin}/trail/${trail.slug ?? trail.id}`,
-		photo: (id) => `${origin}/photos/${id}`
+		photoFile: (id) => `${api}/v3/photos/${id}/image?key=${encodeURIComponent(key)}&size=original`
 	};
 
-	let me: UserInfo | null = null;
+	type Me = z.output<typeof AllTrailsMeSchema>['users'][number];
+	let me: Me | null = null;
+	const details = new Map<number, AllTrailsMapDetail>();
+	const trails = new Map<number, AllTrailsTrail>();
 
-	async function identifyUser(): Promise<UserInfo> {
-		const json = await transport.getJson(`${api}/me`);
-		const { user } = parseListing(identity, AllTrailsMeSchema, json, 'account');
-		me = { id: String(user.id), displayName: displayName(user) };
+	function get(url: string): Promise<unknown> {
+		if (!key) {
+			throw new AdapterOutdatedError(identity.label, identity.version, 'no API key configured');
+		}
+		return transport.getJson(url, { [AT_KEY_HEADER]: key });
+	}
+
+	async function requireMe(): Promise<Me> {
+		me ??= parseListing(identity, AllTrailsMeSchema, await get(`${api}/me`), 'account').users[0]!;
 		return me;
 	}
 
-	async function requireUser(): Promise<UserInfo> {
-		return me ?? identifyUser();
+	async function identifyUser(): Promise<UserInfo> {
+		const user = await requireMe();
+		return { id: String(user.id), displayName: displayName(user) };
 	}
 
-	async function* pages<S extends z.ZodType>(
-		resource: string,
-		item: S
-	): AsyncGenerator<z.output<S>> {
-		const user = await requireUser();
-		const schema = allTrailsListingSchema(item);
+	/** Walks `after=<nextCursor>` pages. Other cursor parameter names are silently ignored. */
+	async function* pages<P extends { pageInfo?: PageInfo | null | undefined }, T>(
+		path: string,
+		schema: z.ZodType<P>,
+		items: (page: P) => T[],
+		what: string
+	): AsyncGenerator<T> {
 		let cursor: string | null = null;
 		do {
-			const query: string = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
-			const page: z.output<typeof schema> = parseListing(
+			const separator = path.includes('?') ? '&' : '?';
+			const after: string = cursor ? `&after=${encodeURIComponent(cursor)}` : '';
+			const page: P = parseListing(
 				identity,
 				schema,
-				await transport.getJson(`${api}/users/${user.id}/${resource}?limit=${PAGE_LIMIT}${query}`),
-				`${resource} listing`
+				await get(`${api}${path}${separator}limit=${PAGE_LIMIT}${after}`),
+				what
 			);
-			yield* page.items as z.output<S>[];
-			cursor = page.meta.nextCursor;
+			yield* items(page);
+			cursor = page.pageInfo?.hasNextPage === false ? null : (page.pageInfo?.nextCursor ?? null);
 		} while (cursor);
 	}
+	interface PageInfo {
+		hasNextPage?: boolean | null | undefined;
+		nextCursor?: string | null | undefined;
+	}
 
-	const segmentsLoader = (resource: 'activities' | 'maps', id: number) => async () =>
-		mapSegments(
-			parseItem(AllTrailsSegmentsSchema, await transport.getJson(`${api}/${resource}/${id}`))
-		);
+	/** The user's own recordings or custom routes. */
+	async function* maps(kind: Kind): AsyncGenerator<AllTrailsMap> {
+		const user = await requireMe();
+		const path = `/users/${user.id}/maps?presentation_type=${PRESENTATION[kind]}`;
+		for await (const map of pages(
+			path,
+			AllTrailsMapsPageSchema,
+			(p) => p.maps,
+			`${kind} listing`
+		)) {
+			if (map.user.id === user.id) yield map;
+		}
+	}
+
+	async function detail(id: number): Promise<AllTrailsMapDetail> {
+		const known = details.get(id);
+		if (known) return known;
+		const parsed = parseItem(AllTrailsMapDetailSchema, await get(`${api}/maps/${id}?detail=deep`));
+		details.set(id, parsed.maps[0]!);
+		return parsed.maps[0]!;
+	}
+
+	async function* lines(kind: Kind): AsyncGenerator<LineRecord> {
+		for await (const map of maps(kind)) {
+			yield {
+				...mapLine(kind, map, urls),
+				nativeGpx: null,
+				loadSegments: async () => mapSegments(await detail(map.id))
+			};
+		}
+	}
+
+	async function trail(id: number): Promise<AllTrailsTrail> {
+		const known = trails.get(id);
+		if (known) return known;
+		const parsed = parseItem(AllTrailsTrailSchema, await get(`${api}/trails/${id}`));
+		trails.set(id, parsed.trails[0]!);
+		return parsed.trails[0]!;
+	}
 
 	return {
 		id: 'alltrails',
@@ -100,59 +157,35 @@ export const createAllTrailsAdapter: AdapterFactory = (transport, mode) => {
 		bridgeUrl: `${origin}/robots.txt`,
 		loginUrl: `${origin}/login`,
 		isLoginUrl: (url) => new URL(url).pathname.startsWith('/login'),
-		rawScrubKeys: ['items', 'trail'],
-		notes: ['Saved AllTrails trails are exported as links, not trail geometry.'],
+		// Embedded people, and what is exported as objects of its own.
+		rawScrubKeys: ['user', 'waypoints', 'mapPhotos', 'photoHash'],
+		notes: [
+			'Saved AllTrails trails are exported as links, not trail geometry.',
+			'AllTrails offers no GPX download here, so tracks and routes are rebuilt from its map data.'
+		],
 
 		identifyUser,
 
 		async count(type) {
 			if (type === 'area') return 0;
-			if (type !== 'track' && type !== 'route' && type !== 'photo') return null;
-			const user = await requireUser();
-			const json = await transport.getJson(`${api}/users/${user.id}/stats`);
-			const stats = parseListing(identity, AllTrailsStatsSchema, json, 'stats');
-			const value = { track: stats.activities, route: stats.maps, photo: stats.photos }[type];
+			const user = await requireMe();
+			// The list counters stay at zero for the built-in lists, so they are not offered.
+			const value = { track: user.tracks, route: user.maps, photo: user.photos }[
+				type as 'track' | 'route' | 'photo'
+			];
 			return value ?? null;
 		},
 
-		async *enumerateTracks(): AsyncGenerator<LineRecord> {
-			const user = await requireUser();
-			for await (const activity of pages('activities', AllTrailsActivitySchema)) {
-				if (String(activity.user.id) !== user.id) continue;
-				yield {
-					...mapActivity(activity, urls),
-					nativeGpx: {
-						method: 'GET',
-						url: `${api}/activities/${activity.id}/export?format=gpx`,
-						accept: 'text-stream'
-					},
-					loadSegments: segmentsLoader('activities', activity.id)
-				};
-			}
-		},
+		enumerateTracks: () => lines('track'),
+		enumerateRoutes: () => lines('route'),
 
-		async *enumerateRoutes(): AsyncGenerator<LineRecord> {
-			const user = await requireUser();
-			for await (const map of pages('maps', AllTrailsMapSchema)) {
-				if (String(map.user.id) !== user.id) continue;
-				yield {
-					...mapMap(map, urls),
-					nativeGpx: {
-						method: 'GET',
-						url: `${api}/maps/${map.id}/export?format=gpx`,
-						accept: 'text-stream'
-					},
-					loadSegments: segmentsLoader('maps', map.id)
-				};
-			}
-		},
-
-		// Waypoints only exist embedded in the user's custom maps.
 		async *enumerateWaypoints(): AsyncGenerator<WaypointRecord> {
-			const user = await requireUser();
-			for await (const map of pages('maps', AllTrailsMapSchema)) {
-				if (String(map.user.id) !== user.id) continue;
-				for (const waypoint of map.waypoints) yield mapMapWaypoint(waypoint, map, urls);
+			for (const kind of ['track', 'route'] as const) {
+				for await (const map of maps(kind)) {
+					for (const waypoint of (await detail(map.id)).waypoints ?? []) {
+						yield mapWaypoint(waypoint, kind, map, urls);
+					}
+				}
 			}
 		},
 
@@ -162,33 +195,46 @@ export const createAllTrailsAdapter: AdapterFactory = (transport, mode) => {
 		},
 
 		async *enumerateCollections(): AsyncGenerator<CollectionRecord> {
-			const user = await requireUser();
-			for await (const list of pages('lists', AllTrailsListSchema)) {
-				if (String(list.user.id) === user.id) yield mapList(list, urls);
-			}
-			const completed: CollectionRecord['members'] = [];
-			for await (const entry of pages('completed', AllTrailsCompletedSchema)) {
-				completed.push({ kind: 'reference', reference: mapCompleted(entry, urls) });
-			}
-			if (completed.length > 0) {
-				yield {
-					kind: 'collection',
-					key: COMPLETED_KEY,
-					name: 'Completed trails',
-					description: null,
-					createdAt: null,
-					updatedAt: null,
-					parentSourceId: null,
-					source: null,
-					members: completed
-				};
+			const user = await requireMe();
+			const path = `/users/${user.id}/lists`;
+			for await (const list of pages(path, AllTrailsListsPageSchema, (p) => p.lists, 'lists')) {
+				if ((list.ownerId ?? list.user?.id) !== user.id) continue;
+				const { listItems } = parseListing(
+					identity,
+					AllTrailsListItemsSchema,
+					await get(`${api}/lists/${list.id}/items`),
+					'list items'
+				);
+				const members: CollectionMemberRecord[] = [];
+				for (const item of listItems) {
+					// Only saved trails have been seen in the wild; anything else is left out.
+					if (item.type !== 'trail' || typeof item.trailId !== 'number') continue;
+					members.push({
+						kind: 'reference',
+						reference: mapTrailReference(await trail(item.trailId), item, urls)
+					});
+				}
+				// The three built-in lists exist for everyone; empty ones are not the user's data.
+				if (members.length > 0) yield mapList(list, members);
 			}
 		},
 
 		async *enumeratePhotos(): AsyncGenerator<PhotoRecord> {
-			const user = await requireUser();
-			for await (const photo of pages('photos', AllTrailsPhotoSchema)) {
-				if (String(photo.user.id) === user.id) yield mapPhoto(photo, urls);
+			const user = await requireMe();
+			// Which map a photo belongs to is only written in that map's detail.
+			const attachedTo = new Map<number, PhotoRecord['attachedTo']>();
+			for (const kind of ['track', 'route'] as const) {
+				for await (const map of maps(kind)) {
+					if (!map.photoCount) continue;
+					for (const entry of (await detail(map.id)).mapPhotos ?? []) {
+						attachedTo.set(entry.photo.id, { type: kind, sourceId: String(map.id) });
+					}
+				}
+			}
+			const path = `/users/${user.id}/photos`;
+			for await (const photo of pages(path, AllTrailsPhotosPageSchema, (p) => p.photos, 'photos')) {
+				if (photo.user.id === user.id)
+					yield mapPhoto(photo, attachedTo.get(photo.id) ?? null, urls);
 			}
 		}
 	};

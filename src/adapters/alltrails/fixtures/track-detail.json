@@ -1,0 +1,131 @@
+{
+	"maps": [
+		{
+			"id": 810001,
+			"name": "Morning loop / ridge ../summit",
+			"description": "Great morning. Saw two marmots.",
+			"presentationType": "track",
+			"slug": "track-810001",
+			"created_at": "2024-06-04T15:21:35Z",
+			"location": {
+				"city": null,
+				"country": "US",
+				"latitude": "36.77012",
+				"longitude": "-118.37044"
+			},
+			"trailId": null,
+			"activity": {
+				"uid": "hiking",
+				"name": "hiking"
+			},
+			"user": {
+				"id": 7001,
+				"username": "test-hiker",
+				"firstName": "Test",
+				"lastName": "Hiker",
+				"slug": "test-hiker"
+			},
+			"private": false,
+			"contentPrivacy": "urn:alltrails:visibility:public",
+			"summaryStats": {
+				"duration": 1434,
+				"distanceTotal": 2815.7,
+				"elevationGain": 48.2
+			},
+			"photoCount": 1,
+			"metadata": {
+				"created": "2024-06-04T15:21:35Z",
+				"updated": "2024-06-06T15:42:09Z",
+				"status": "A",
+				"cursor": "Yzo4MTAwMDE"
+			},
+			"tracks": [
+				{
+					"id": 5810001,
+					"status": "A",
+					"sequence_num": 0,
+					"lineTimedSegments": [
+						{
+							"id": 8100010,
+							"sequence_num": 0,
+							"dateTimeStart": "2024-06-04T10:21:35Z",
+							"dateTimeStop": "2024-06-04T10:45:29Z",
+							"polyline": {
+								"pointsData": "gtl_FffnqUYh@If@Aj@?l@An@Ad@Kd@A\\Bv@Cp@Eb@KZYZYTUTUNg@Ha@Na@Hc@J[N[Rg@Ji@Bg@Ii@Mc@G_@SUQ]O]A_@?g@Le@V]Fa@C_@CWG_@O]US_@U[WOY_@_@]Ya@Sm@Yc@K_@]a@Ye@[Wa@O[MUWWa@[g@a@Wa@_@Ui@W]SSS]W_@Y_@SWW_@M[UUOWO]Wi@SUS[Yc@c@[WWO[O_@Ya@_@]Wk@a@c@Yc@Qa@Sq@KYEm@Me@Ce@Bo@F_@LYXWRSTOf@SZ[VYTOV]J]Ni@La@Tk@N[P]Pe@`@c@Tc@RUXQ`@YXQZE`@Mb@?^E`@MXC^E\\KRS\\g@Nc@Nm@PWX[d@[ZMVSTW^Y\\e@T[^]Tm@RWPg@Fe@A]Ko@Ee@@g@Co@K[Ga@Oi@C_@",
+								"indexedTimeData": "?owi|fm@gEg^gEo}@gEod@gEovAgEo}@gEwcAgEwj@gE_jAgEgw@gEovAgEod@gEg^gE_jAgEo}@gEgw@gEgpAgEod@gEod@gEwcAgEgpAgEovAgEwcAgE_jAgEovAgEgw@gE_q@gEgpAgEod@gEo}@gEgw@gEod@gEo}@gEwcAgEgw@gEovAgEgpAgEod@gEovAgEwj@gEovAgEwj@gE_q@gEo}@gEwcAgEwj@gE_jAgEwj@gEo}@gEo}@gEwcAgE_q@gEo}@gEwcAgEg^gEgw@gEwj@gE_q@gEwcAgEgpAgEgpAgEovAgE_jAgEwcAgEwcAgEgpAgEg^gEwj@gE_jAgE_jAgEgw@gE_jAgEg^gEovAgE_jAgEovAgEo}@gEo}@gEgpAgEovAgEwj@gEwcAgEgpAgEod@gEo}@gEwcAgE_q@gEwcAgEgw@gEwcAgEovAgEod@gE_jAgEod@gE_q@gEo}@gE_jAgEg^gEwcAgEwj@gEwcAgEwcAgEgpAgEod@gEo}@gE_q@gEod@gE_q@gEod@gEg^gEgw@gEwj@gE_jAgEwcAgEwcAgEg^gEg^gEo}@gE_jAgEod@gEgpAgEgpAgEwcAgEg^gEgw@gEgw@gEwcAgE_q@gEwj@gEwj@gEod@gE_q@gEo}@gEgw@gEgw@gEo}@gEgpAgEwcAgEwj@gEod@gEo}@gE_jAgEwcAgEg^gEovAgEwj@gEgpAgEwj@gEwcAgEg^",
+								"elevationData": null,
+								"indexedElevationData": "?_bwkmMgE_kiFgE~f{CgE~{|FgE_af@gE_ibEgE_ry@gE_mpGgE?gE_xnDgE~s`BgE~bmAgE_ibEgE~jiFgE_g{CgE_t`BgE_cmAgE~ugCgE~ugCgE~{|FgE~oRgE?gE_xnDgE~qy@gE~dtBgE?gE_||FgE~dtBgE_`kIgE_mpGgE_zuEgE_af@gE_ry@gE?gE~bmAgE_vgCgE_g{CgE_t`BgE_vgCgE~f{CgE~wnDgE_cmAgE~oRgE~{|FgE_kiFgE~hbEgE~ugCgE~`f@gE~`f@gE_ibEgE_||FgE~qy@gE~wnDgE_g{CgE_||FgE~wnDgE_t`BgE~ugCgE_etBgE~yuEgE~wnDgE_owHgE~jiFgE_mpGgE_pRgE_etBgE~jiFgE~`f@gE_owHgE_pRgE~yuEgE~lpGgE~yuEgE~wnDgE~hbEgE~wnDgE_af@gE~bmAgE~ugCgE~`f@gE~bmAgE~ugCgE?gE~qy@gE~wnDgE~oRgE~{|FgE~oRgE~`f@gE~ugCgE_g{CgE~ugCgE~f{CgE?gE_||FgE_t`BgE_||FgE_pRgE~wnDgE_pRgE~oRgE_kiFgE~yuEgE_af@gE~lpGgE~yuEgE~wnDgE_cmAgE~bmAgE?gE_||FgE~hbEgE~bmAgE_ry@gE~wnDgE~bmAgE~jiFgE_vgCgE_cmAgE~yuEgE_t`BgE_etBgE~hbEgE~yuEgE_ry@gE~oRgE_cmAgE_cmAgE~jiFgE~s`BgE~jiFgE_pRgE_t`BgE_owHgE~f{CgE_af@gE~hbEgE_vgCgE~qy@gE_mpGgE~ugCgE~`f@gE~bmAgE~`f@gE_~cHgE_kiFgE~bmAgE_af@gE~dtBgE~bmA"
+							}
+						}
+					]
+				}
+			],
+			"waypoints": [
+				{
+					"id": 830010,
+					"name": "Marmot rock",
+					"name_original": "Marmot rock",
+					"description": "They live here.",
+					"order": 0,
+					"location": {
+						"latitude": 36.77188,
+						"longitude": -118.36907
+					},
+					"at_map_id": 810001,
+					"waypointCategory": {
+						"id": 1,
+						"name": "General",
+						"uid": "general",
+						"icon": "waypoint-general"
+					},
+					"contentPrivacy": "urn:alltrails:visibility:public",
+					"isGlobal": false,
+					"user": {
+						"id": 7001,
+						"first_name": "Test"
+					}
+				}
+			],
+			"mapPhotos": [
+				{
+					"id": 1860001,
+					"mapId": 810001,
+					"location": {
+						"latitude": "36.77188",
+						"longitude": "-118.36907"
+					},
+					"photo": {
+						"id": 860001,
+						"title": "Marmot!",
+						"description": "He wanted my sandwich",
+						"likeCount": 0,
+						"photoHash": "000000000000000000000000000d1f61",
+						"trailId": null,
+						"trailIds": [],
+						"location": {
+							"latitude": 36.77188,
+							"longitude": -118.36907
+						},
+						"user": {
+							"id": 7001,
+							"username": "test-hiker",
+							"firstName": "Test",
+							"lastName": "Hiker",
+							"slug": "test-hiker"
+						},
+						"metadata": {
+							"created": "2024-06-04T15:24:39Z",
+							"updated": "2024-06-04T15:25:39Z",
+							"status": "A"
+						}
+					}
+				}
+			],
+			"map_source": "ios"
+		}
+	],
+	"meta": {
+		"status": "ok",
+		"items": 1
+	}
+}

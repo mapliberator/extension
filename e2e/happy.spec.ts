@@ -48,7 +48,8 @@ for (const platform of ['gaiagps', 'alltrails'] as const) {
 		// (c) manifest.json is the last ZIP entry
 		expect(archive.names.at(-1)).toBe('manifest.json');
 
-		// (d) native GPX byte-identical to what fake-source served, sidecars say native-gpx
+		// (d) Gaia: native GPX byte-identical to what fake-source served, sidecars say native-gpx.
+		// AllTrails has no GPX export, so everything there is rebuilt from its map data.
 		for (const [kind, dir, ids] of [
 			['track', 'tracks', expected.ids.tracks],
 			['route', 'routes', expected.ids.routes]
@@ -58,6 +59,15 @@ for (const platform of ['gaiagps', 'alltrails'] as const) {
 				.map((name) => archive.json(name));
 			expect(sidecars.map((sidecar) => sidecar.source.id)).toEqual(ids);
 			for (const sidecar of sidecars) {
+				if (platform === 'alltrails') {
+					expect(sidecar.geometrySource).toBe('serialized');
+					expect(sidecar.stats.pointCount).toBeGreaterThan(0);
+					const gpx = archive.read(`${dir}/${sidecar.file}`).toString('utf8');
+					expect(gpx).toContain('<trkpt');
+					// Recordings keep their per-point times; planned routes have none.
+					expect(/<trkpt[^>]*>(?:(?!<\/trkpt>)[^])*<time>/.test(gpx)).toBe(kind === 'track');
+					continue;
+				}
 				expect(sidecar.geometrySource).toBe('native-gpx');
 				const served = fake.nativeGpx(platform, kind, sidecar.source.id);
 				expect(archive.read(`${dir}/${sidecar.file}`).equals(served)).toBe(true);

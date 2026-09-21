@@ -97,7 +97,7 @@ export interface SessionCookie {
 
 export type Json = Record<string, unknown>;
 
-/** A track/route/activity/map: its listing entry plus the full JSON detail response. */
+/** An object's listing entry plus its full JSON detail response. */
 export interface LineObject {
 	summary: Json;
 	detail: Json;
@@ -107,18 +107,18 @@ export interface GaiaObjects {
 	me: Json;
 	tracks: LineObject[];
 	routes: LineObject[];
-	waypoints: Json[];
-	areas: Json[];
-	photos: Json[];
-	folders: Json[];
+	waypoints: LineObject[];
+	areas: LineObject[];
+	photos: LineObject[];
+	folders: LineObject[];
 }
 
 export interface AllTrailsObjects {
 	me: Json;
-	activities: LineObject[];
+	tracks: LineObject[];
 	maps: LineObject[];
-	lists: Json[];
-	completed: Json[];
+	lists: { list: Json; items: Json[] }[];
+	trails: Json[];
 	photos: Json[];
 }
 

@@ -27,6 +27,16 @@ describe.each(BUILDS)('$browser build manifest', ({ browser, dir }) => {
 	const path = join(OUTPUT, dir, 'manifest.json');
 	const manifest = JSON.parse(readFileSync(path, 'utf8')) as Record<string, any>;
 
+	it('ships its icons: every size is in the manifest and is a real PNG in the build', () => {
+		expect(Object.keys(manifest.icons ?? {}).sort()).toEqual(['128', '16', '32', '48', '96']);
+		for (const [size, file] of Object.entries<string>(manifest.icons)) {
+			const bytes = readFileSync(join(OUTPUT, dir, file));
+			expect(bytes.subarray(1, 4).toString(), file).toBe('PNG');
+			// IHDR width, big-endian, at byte 16.
+			expect(bytes.readUInt32BE(16), file).toBe(Number(size));
+		}
+	});
+
 	it('is Manifest V3', () => {
 		expect(manifest.manifest_version).toBe(3);
 	});
@@ -45,9 +55,13 @@ describe.each(BUILDS)('$browser build manifest', ({ browser, dir }) => {
 		).toEqual([]);
 		expect(manifest.optional_host_permissions.length).toBeGreaterThan(0);
 		for (const pattern of manifest.optional_host_permissions) {
-			expect(pattern).toMatch(/^https:\/\/[a-z0-9.-]+\.(gaiagps|alltrails|amazonaws)\.com\/\*$/);
+			expect(pattern).toMatch(
+				/^https:\/\/[a-z0-9.-]+\.(gaiagps\.com|gaiagps\.xyz|alltrails\.com)\/\*$/
+			);
 		}
 		expect(manifest.optional_host_permissions).toContain('https://www.gaiagps.com/*');
+		// Gaia's photo host, where the site's photo URLs redirect to.
+		expect(manifest.optional_host_permissions).toContain('https://photos.gaiagps.xyz/*');
 		expect(manifest.optional_host_permissions).toContain('https://www.alltrails.com/*');
 	});
 

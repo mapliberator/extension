@@ -140,7 +140,7 @@ function encode(size, rgba) {
 const logo = decode(readFileSync('logo.png'));
 dropBackdrop(logo);
 const square = artworkSquare(logo);
-mkdirSync('src/public/icon', { recursive: true });
+mkdirSync('public/icons', { recursive: true });
 for (const size of [16, 32, 48, 96, 128]) {
-	writeFileSync(`src/public/icon/${size}.png`, encode(size, resize(logo, square, size)));
+	writeFileSync(`public/icons/${size}.png`, encode(size, resize(logo, square, size)));
 }

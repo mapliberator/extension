@@ -20,10 +20,15 @@ export function createAdapterTransport(
 	context: () => ClassifyContext
 ): AdapterTransport {
 	return {
-		getJson(url: string): Promise<unknown> {
+		getJson(url: string, headers?: Record<string, string>): Promise<unknown> {
 			return run(async () => {
 				try {
-					const response = await bridge.request({ method: 'GET', url, accept: 'json' });
+					const response = await bridge.request({
+						method: 'GET',
+						url,
+						accept: 'json',
+						...(headers ? { headers } : {})
+					});
 					return classifyJsonResponse(response, context());
 				} catch (error) {
 					return classifyTransportError(error);

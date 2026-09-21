@@ -1,76 +1,151 @@
 {
-	"id": 820001,
-	"name": "🏔️🥾",
-	"notes": "Permit needed.",
-	"description": "Two-night loop with a layover day.",
-	"createdAt": 1717425982,
-	"updatedAt": 1717600016,
-	"activityType": {
-		"uid": "backpacking"
-	},
-	"private": false,
-	"user": {
-		"id": 7001,
-		"name": "Test Hiker"
-	},
-	"summaryStats": {
-		"distanceTotal": 4122.4,
-		"elevationGain": 104.6
-	},
-	"location": {
-		"latitude": 36.74418,
-		"longitude": -118.40127
-	},
-	"waypoints": [
+	"maps": [
 		{
-			"id": 830001,
-			"name": "Night 1 camp",
-			"description": "By the outlet.",
+			"id": 820001,
+			"name": "🏔️🥾",
+			"description": "Two-night loop with a layover day.",
+			"presentationType": "map",
+			"slug": "map-820001",
+			"created_at": "2024-06-03T14:46:22Z",
 			"location": {
-				"latitude": 36.74951,
-				"longitude": -118.39582
+				"city": null,
+				"country": "US",
+				"latitude": "36.74418",
+				"longitude": "-118.40127"
 			},
-			"createdAt": 1717426042
-		},
-		{
-			"id": 830002,
-			"name": "Water <last reliable>",
-			"description": "",
-			"location": {
-				"latitude": 36.75307,
-				"longitude": -118.39011
+			"trailId": null,
+			"activity": {
+				"uid": "backpacking",
+				"name": "backpacking"
 			},
-			"createdAt": 1717426102
+			"user": {
+				"id": 7001,
+				"username": "test-hiker",
+				"firstName": "Test",
+				"lastName": "Hiker",
+				"slug": "test-hiker"
+			},
+			"private": false,
+			"contentPrivacy": "urn:alltrails:visibility:public",
+			"summaryStats": {
+				"duration": 0,
+				"distanceTotal": 4122.4,
+				"elevationGain": 104.6
+			},
+			"photoCount": 1,
+			"metadata": {
+				"created": "2024-06-03T14:46:22Z",
+				"updated": "2024-06-05T15:06:56Z",
+				"status": "A",
+				"cursor": "Yzo4MjAwMDE"
+			},
+			"routes": [
+				{
+					"id": 5820001,
+					"status": "A",
+					"sequence_num": 0,
+					"lineSegments": [
+						{
+							"id": 8200010,
+							"sequence_num": 0,
+							"polyline": {
+								"pointsData": "crg_F|ftqUQm@S[Si@SUSS[QQWKYIc@O_@I_@G]We@Uo@Q[[e@Ka@Q_@SWWYWQ[][_@Wc@Mc@Ce@Mk@Cc@Oi@Qg@Qm@Ma@Ca@E_@Eq@Dg@Ho@Do@Fa@B_@?a@Dc@Da@Ro@V_@^Y^]Xc@Rk@Pi@V]`@_@XYb@Q\\G`@IXSj@I`@Qb@GVOf@K\\S\\M\\QTMXITOXSZSVIVQXGX?\\?\\@d@RTD\\Fh@BZCh@H`@L`@ZX^\\b@Xj@JZZ`@ZVVX\\V\\J`@?^L^Rf@R^Nf@LTH`@Jf@BXE`@Eh@H^F\\D^DVA\\AZKZE\\E^Cd@Sh@GZAd@Fh@Lf@Bh@Nb@Lb@Pb@JZA^H`@D`@Ph@D`@NTP`@Nd@B`@DZ@`@Cf@Ud@EXE\\KXWVc@Va@Lc@No@@c@Fi@Ak@Gm@C_@Oq@O]OWU]_@c@Qe@QWYUi@S[IYC_@Ee@H_@LYNc@X_@XSLUNa@V[Da@L]R[Fa@Fc@H_@Li@Ha@C[E_@Q[YO[SUWe@Om@Go@@_@C_@?q@Ko@Ki@Se@Ye@YW[i@OYY]O[Y]QSUWa@[]g@]S[QY[YUWUi@O]YS]M]Ee@Me@A]De@Dq@Do@",
+								"indexedElevationData": "?_}{_hKgE_af@gE_kiFgE_cmAgE~hbEgE~oRgE_xnDgE_mpGgE~jiFgE_g{CgE~wnDgE~jiFgE_etBgE~s`BgE_g{CgE_||FgE_kiFgE~jiFgE~qy@gE~oRgE_||FgE_kiFgE_pRgE~wnDgE_mpGgE~wnDgE_g{CgE_zuEgE_kiFgE_g{CgE_cmAgE_ibEgE~ugCgE~oRgE~hbEgE_g{CgE~dtBgE_||FgE~dtBgE~qy@gE~hbEgE~s`BgE~yuEgE_ry@gE~qy@gE~oRgE_xnDgE~lpGgE?gE_cmAgE_af@gE_zuEgE_mpGgE~ugCgE_etBgE~oRgE~f{CgE~jiFgE_||FgE_mpGgE_||FgE_pRgE_vgCgE~f{CgE_cmAgE_kiFgE_af@gE_ry@gE_mpGgE_cmAgE~f{CgE_g{CgE_vgCgE_mpGgE~wnDgE_t`BgE_kiFgE~f{CgE~`f@gE?gE~yuEgE?gE~oRgE_vgCgE~yuEgE_af@gE_xnDgE_~cHgE~f{CgE_~cHgE_cmAgE~yuEgE_zuEgE_xnDgE_ry@gE~dtBgE~ugCgE_etBgE_mpGgE~f{CgE_af@gE_cmAgE_mpGgE_owHgE_g{CgE_pRgE~bmAgE~hbEgE~{|FgE_xnDgE_zuEgE~wnDgE~wnDgE~s`BgE_ibEgE~hbEgE~hbEgE_af@gE_cmAgE_t`BgE~hbEgE~f{CgE~qy@gE_zuEgE_mpGgE?gE~hbEgE~jiFgE~s`BgE_ry@gE~f{CgE~jiFgE_zuEgE_cmAgE_etBgE_owHgE~dtBgE~f{CgE~qy@gE~bmAgE_af@gE_pRgE_ry@gE~qy@gE~ugCgE?gE_ry@gE~`f@gE_zuEgE_t`BgE~hbEgE~wnDgE~`f@gE_kiFgE_t`BgE~hbEgE_ibEgE~s`BgE~{|FgE~{|FgE~bmAgE_ry@gE_ibEgE_mpGgE_pRgE~qy@gE_owHgE~ugCgE_g{CgE~{|FgE_~cHgE~dtBgE_mpGgE_ibEgE_~cHgE~s`BgE~wnDgE~{|FgE_~cHgE_||FgE_af@gE_cmAgE_etBgE~f{CgE_zuEgE~bmAgE~yuEgE_~cHgE~f{CgE~qy@gE_mpGgE~`f@gE_xnDgE_kiFgE~bmAgE_zuEgE~bmAgE_ry@gE~wnDgE~dtBgE_||FgE_xnDgE_t`BgE~`f@gE~f{CgE_owHgE_mpGgE~`f@gE~yuEgE~jiFgE~dtBgE_kiFgE_g{CgE~oRgE_vgCgE_owHgE_owHgE~f{CgE_~cHgE_kiF"
+							}
+						}
+					]
+				}
+			],
+			"waypoints": [
+				{
+					"id": 830001,
+					"name": "Night 1 camp",
+					"name_original": "Night 1 camp",
+					"description": "By the outlet.",
+					"order": 0,
+					"location": {
+						"latitude": 36.74951,
+						"longitude": -118.39582
+					},
+					"at_map_id": 820001,
+					"waypointCategory": {
+						"id": 1,
+						"name": "General",
+						"uid": "general",
+						"icon": "waypoint-general"
+					},
+					"contentPrivacy": "urn:alltrails:visibility:public",
+					"isGlobal": false,
+					"user": {
+						"id": 7001,
+						"first_name": "Test"
+					}
+				},
+				{
+					"id": 830002,
+					"name": "Water <last reliable>",
+					"name_original": "Water <last reliable>",
+					"description": null,
+					"order": 1,
+					"location": {
+						"latitude": 36.75307,
+						"longitude": -118.39011
+					},
+					"at_map_id": 820001,
+					"waypointCategory": {
+						"id": 1,
+						"name": "General",
+						"uid": "general",
+						"icon": "waypoint-general"
+					},
+					"contentPrivacy": "urn:alltrails:visibility:public",
+					"isGlobal": false,
+					"user": {
+						"id": 7001,
+						"first_name": "Test"
+					}
+				}
+			],
+			"mapPhotos": [
+				{
+					"id": 1860002,
+					"mapId": 820001,
+					"location": {
+						"latitude": "null",
+						"longitude": "null"
+					},
+					"photo": {
+						"id": 860002,
+						"title": "",
+						"description": null,
+						"likeCount": 0,
+						"photoHash": "000000000000000000000000000d1f62",
+						"trailId": null,
+						"trailIds": [],
+						"location": {
+							"latitude": null,
+							"longitude": null
+						},
+						"user": {
+							"id": 7001,
+							"username": "test-hiker",
+							"firstName": "Test",
+							"lastName": "Hiker",
+							"slug": "test-hiker"
+						},
+						"metadata": {
+							"created": "2024-06-03T15:24:39Z",
+							"updated": "2024-06-03T15:25:39Z",
+							"status": "A"
+						}
+					}
+				}
+			],
+			"map_source": "ios"
 		}
 	],
-	"segments": [
-		{
-			"polyline": {
-				"pointsData": "crg_F|ftqUQm@S[Si@SUSS[QQWKYIc@O_@I_@G]We@Uo@Q[[e@Ka@Q_@SWWYWQ[][_@Wc@Mc@Ce@Mk@Cc@Oi@Qg@Qm@Ma@Ca@E_@Eq@Dg@Ho@Do@Fa@B_@?a@Dc@Da@Ro@V_@^Y^]Xc@Rk@Pi@V]`@_@XYb@Q\\G`@IXSj@I`@Qb@GVOf@K\\S\\M\\QTMXITOXSZSVIVQXGX?\\?\\@d@RTD\\Fh@BZCh@H`@L`@ZX^\\b@Xj@JZZ`@ZVVX\\V\\J`@?^L^Rf@R^Nf@LTH`@Jf@BXE`@Eh@H^F\\D^DVA\\AZKZE\\E^Cd@Sh@GZAd@Fh@Lf@Bh@Nb@Lb@Pb@JZA^H`@D`@Ph@D`@NTP`@Nd@B`@DZ@`@Cf@Ud@EXE\\KXWVc@Va@Lc@No@@c@Fi@Ak@Gm@C_@Oq@O]OWU]_@c@Qe@QWYUi@S[IYC_@Ee@H_@LYNc@X_@XSLUNa@V[Da@L]R[Fa@Fc@H_@Li@Ha@C[E_@Q[YO[SUWe@Om@Go@@_@C_@?q@Ko@Ki@Se@Ye@YW[i@OYY]O[Y]QSUWa@[]g@]S[QY[YUWUi@O]YS]M]Ee@Me@A]De@Dq@Do@",
-				"elevationData": [
-					2060.6, 2060.8, 2062, 2062.4, 2061.4, 2061.3, 2062.2, 2063.6, 2062.4, 2063.2, 2062.3,
-					2061.1, 2061.7, 2061.2, 2062, 2063.3, 2064.5, 2063.3, 2063, 2062.9, 2064.2, 2065.4,
-					2065.5, 2064.6, 2066, 2065.1, 2065.9, 2067, 2068.2, 2069, 2069.4, 2070.4, 2069.7, 2069.6,
-					2068.6, 2069.4, 2068.8, 2070.1, 2069.5, 2069.2, 2068.2, 2067.7, 2066.6, 2066.9, 2066.6,
-					2066.5, 2067.4, 2066, 2066, 2066.4, 2066.6, 2067.7, 2069.1, 2068.4, 2069, 2068.9, 2068.1,
-					2066.9, 2068.2, 2069.6, 2070.9, 2071, 2071.7, 2070.9, 2071.3, 2072.5, 2072.7, 2073,
-					2074.4, 2074.8, 2074, 2074.8, 2075.5, 2076.9, 2076, 2076.5, 2077.7, 2076.9, 2076.7,
-					2076.7, 2075.6, 2075.6, 2075.5, 2076.2, 2075.1, 2075.3, 2076.2, 2077.7, 2076.9, 2078.4,
-					2078.8, 2077.7, 2078.8, 2079.7, 2080, 2079.4, 2078.7, 2079.3, 2080.7, 2079.9, 2080.1,
-					2080.5, 2081.9, 2083.5, 2084.3, 2084.4, 2084, 2083, 2081.7, 2082.6, 2083.7, 2082.8,
-					2081.9, 2081.4, 2082.4, 2081.4, 2080.4, 2080.6, 2081, 2081.5, 2080.5, 2079.7, 2079.4,
-					2080.5, 2081.9, 2081.9, 2080.9, 2079.7, 2079.2, 2079.5, 2078.7, 2077.5, 2078.6, 2079,
-					2079.6, 2081.2, 2080.6, 2079.8, 2079.5, 2079.1, 2079.3, 2079.4, 2079.7, 2079.4, 2078.7,
-					2078.7, 2079, 2078.8, 2079.9, 2080.4, 2079.4, 2078.5, 2078.3, 2079.5, 2080, 2079, 2080,
-					2079.5, 2078.2, 2076.9, 2076.5, 2076.8, 2077.8, 2079.2, 2079.3, 2079, 2080.6, 2079.9,
-					2080.7, 2079.4, 2080.9, 2080.3, 2081.7, 2082.7, 2084.2, 2083.7, 2082.8, 2081.5, 2083,
-					2084.3, 2084.5, 2084.9, 2085.5, 2084.7, 2085.8, 2085.4, 2084.3, 2085.8, 2085, 2084.7,
-					2086.1, 2085.9, 2086.8, 2088, 2087.6, 2088.7, 2088.3, 2088.6, 2087.7, 2087.1, 2088.4,
-					2089.3, 2089.8, 2089.6, 2088.8, 2090.4, 2091.8, 2091.6, 2090.5, 2089.3, 2088.7, 2089.9,
-					2090.7, 2090.6, 2091.3, 2092.9, 2094.5, 2093.7, 2095.2, 2096.4
-				],
-				"timeData": null
-			}
-		}
-	]
+	"meta": {
+		"status": "ok",
+		"items": 1
+	}
 }

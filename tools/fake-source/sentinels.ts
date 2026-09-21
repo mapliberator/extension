@@ -20,6 +20,10 @@ export const SENTINELS = {
 		alltrails: 'SENTINEL-SESSION-at-2d8e4f6a1c'
 	},
 	csrfToken: 'SENTINEL-CSRF-91b7c3d5e2f4',
+	/** The AllTrails-shaped site's app key: sent on every call and in photo URLs, never archived. */
+	appKey: 'fakeatkey0123456789abcdef0123456',
+	/** Signature on the short-lived photo URLs the Gaia-shaped site redirects to. */
+	photoSignature: 'SENTINEL-PHOTO-SIGNATURE-5c1d7e9a',
 	email: 'sentinel.hiker@example.test',
 	otherUserName: 'Sentinel Otheruser',
 	otherUserEmail: 'sentinel.other@example.test',

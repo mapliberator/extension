@@ -67,10 +67,12 @@ automated; `verify:large` stubs it with a real `FileSystemFileHandle` to drive t
 
 ## Not covered by `verify` — still to be done by hand
 
-- **Phase 0 platform probes** against the real Gaia GPS and AllTrails with a signed-in session.
-  The response shapes in `tools/fake-source`, the adapter schemas, the fixtures in
-  `src/adapters/*/fixtures/` and the asset hosts in `src/adapters/hosts.ts` are plausible
-  inventions until those findings exist. Expect a correction pass confined to `src/adapters/`.
+- **Phase 0 platform probes.** Both platforms have been probed (`docs/phase0-findings.md`) and
+  the adapters, fixtures, fake server and hosts follow the recorded shapes. Still open — Gaia:
+  shared folders, waypoint elevation (only on the per-waypoint detail). AllTrails: **the
+  `X-AT-KEY` app key is not configured** (`src/adapters/alltrails/key.ts`; the adapter refuses to
+  run without it — ship it or read it from the site at run time is an open decision), completed
+  trails and reviews, list items other than saved trails, and what a signed-out browser gets.
 - **Firefox end to end.** Only the build, `web-ext lint` and the manifest assertions are
   automated. The export flow in Firefox — `persist()` and quota, the OPFS → `downloads` hand-off,
   the optional-permission prompt — stays on the manual checklist (PRD §24).

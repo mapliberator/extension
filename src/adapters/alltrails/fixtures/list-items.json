@@ -1,0 +1,30 @@
+{
+	"listItems": [
+		{
+			"id": 841001,
+			"listId": 840001,
+			"type": "trail",
+			"order": 0,
+			"notes": "Start before 7am; bring 3L of water.",
+			"trailId": 850001,
+			"metadata": {
+				"status": "A",
+				"created": "2024-06-06T14:11:09Z",
+				"updated": "2024-06-07T14:11:09Z"
+			}
+		},
+		{
+			"id": 841002,
+			"listId": 840001,
+			"type": "trail",
+			"order": 1,
+			"notes": null,
+			"trailId": 850002,
+			"metadata": {
+				"status": "A",
+				"created": "2024-06-06T14:12:09Z",
+				"updated": "2024-06-07T14:11:09Z"
+			}
+		}
+	]
+}

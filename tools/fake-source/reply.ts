@@ -5,9 +5,11 @@ export type Reply =
 	| {
 			kind: 'json';
 			status: number;
-			body: Record<string, unknown>;
+			body: Record<string, unknown> | unknown[];
 			/** Set on listings: the top-level array key that `schema-drift` renames. */
 			listingKey?: string;
+			/** Set on bare-array listings: `schema-drift` wraps the array in an envelope. */
+			listing?: boolean;
 	  }
 	| { kind: 'bytes'; status: number; contentType: string; body: Buffer }
 	| { kind: 'photo'; spec: PhotoSpec };
@@ -17,6 +19,8 @@ export interface ApiRequest {
 	/** Path without the query string. */
 	path: string;
 	query: URLSearchParams;
+	/** Lower-cased request headers. */
+	headers: Record<string, string | string[] | undefined>;
 }
 
 export function json(status: number, body: Record<string, unknown>): Reply {

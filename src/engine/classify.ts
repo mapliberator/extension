@@ -8,11 +8,12 @@ import {
 	BridgeRefusedError,
 	TabLostError,
 	type BridgeResponse
-} from './bridge';
+} from './bridge-types';
 import { parseRetryAfter, type AttemptOutcome } from './pacing';
 
 export interface ClassifyContext {
 	isLoginUrl(url: string): boolean;
+	isSignedOut?(response: { status: number; bodyKind: string; json?: unknown }): boolean;
 }
 
 export function classifyTransportError(error: unknown): AttemptOutcome<never> {
@@ -26,8 +27,17 @@ export function classifyTransportError(error: unknown): AttemptOutcome<never> {
 	throw error;
 }
 
+function isChallengeJson(json: unknown): boolean {
+	if (typeof json !== 'object' || json === null || Array.isArray(json)) return false;
+	const keys = Object.keys(json);
+	return keys.length === 1 && typeof (json as { url?: unknown }).url === 'string';
+}
+
 function isLoginRedirect(response: BridgeResponse, context: ClassifyContext): boolean {
-	return response.redirected && context.isLoginUrl(response.url);
+	return (
+		(response.redirected && context.isLoginUrl(response.url)) ||
+		context.isSignedOut?.(response) === true
+	);
 }
 
 /** JSON API responses. */
@@ -38,6 +48,9 @@ export function classifyJsonResponse(
 	const { status } = response;
 	if (status === 401 || isLoginRedirect(response, context))
 		return { type: 'pause', reason: 'auth' };
+	// A bot-protection challenge delivered as JSON: `{ "url": "<captcha page>" }` and nothing else.
+	if (status === 403 && isChallengeJson(response.json))
+		return { type: 'pause', reason: 'challenge' };
 	if (status === 429 || (status === 403 && response.bodyKind !== 'html')) {
 		return {
 			type: 'retry',
