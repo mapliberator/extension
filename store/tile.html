@@ -1,0 +1,250 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<style>
+			:root {
+				--bg-a: #1b6143;
+				--bg-b: #0e3624;
+				--ink: #ffffff;
+				--soft: #cdeedc;
+				--sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+			}
+			* {
+				margin: 0;
+				box-sizing: border-box;
+			}
+			html,
+			body {
+				width: var(--w);
+				height: var(--h);
+				overflow: hidden;
+			}
+			body {
+				position: relative;
+				background: linear-gradient(135deg, var(--bg-a), var(--bg-b));
+				font-family: var(--sans);
+				color: var(--ink);
+			}
+			canvas {
+				position: absolute;
+				inset: 0;
+			}
+			.content {
+				position: absolute;
+				inset: 0;
+				display: flex;
+				align-items: center;
+			}
+			.badge {
+				flex: none;
+				background: #fff;
+				border-radius: 23%;
+				box-shadow:
+					0 0.06em 0.18em rgba(0, 0, 0, 0.28),
+					0 0 0 1px rgba(0, 0, 0, 0.05);
+				display: grid;
+				place-items: center;
+			}
+			.badge img {
+				width: 80%;
+				height: 80%;
+				object-fit: contain;
+			}
+			h1 {
+				font-weight: 700;
+				letter-spacing: -0.025em;
+				line-height: 1;
+			}
+			p {
+				color: var(--soft);
+				letter-spacing: -0.005em;
+			}
+
+			.marquee .content {
+				padding-left: 150px;
+				gap: 64px;
+			}
+			.marquee .badge {
+				width: 300px;
+				height: 300px;
+				font-size: 300px;
+			}
+			.marquee h1 {
+				font-size: 108px;
+			}
+			.marquee p {
+				font-size: 40px;
+				margin-top: 26px;
+			}
+
+			.small .content {
+				flex-direction: column;
+				justify-content: center;
+				gap: 20px;
+			}
+			.small .badge {
+				width: 136px;
+				height: 136px;
+				font-size: 136px;
+			}
+			.small h1 {
+				font-size: 44px;
+			}
+		</style>
+	</head>
+	<body>
+		<canvas id="c"></canvas>
+		<div class="content">
+			<div class="badge"><img id="logo" alt="" /></div>
+			<div class="text">
+				<h1>MapLiberator</h1>
+				<p class="tagline">Keep a copy of everything you've mapped.</p>
+			</div>
+		</div>
+		<script>
+			const params = new URLSearchParams(location.search);
+			const W = +params.get('w');
+			const H = +params.get('h');
+			const layout = params.get('layout');
+			document.documentElement.style.setProperty('--w', W + 'px');
+			document.documentElement.style.setProperty('--h', H + 'px');
+			document.body.className = layout;
+			if (layout === 'small') document.querySelector('.tagline').remove();
+
+			// Seeded gradient noise, for the uneven ground between the hills.
+			function rng(seed) {
+				return () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+			}
+			const rand = rng(+params.get('seed') || 7);
+			const perm = Array.from({ length: 256 }, (_, i) => i);
+			for (let i = 255; i > 0; i--) {
+				const j = Math.floor(rand() * (i + 1));
+				[perm[i], perm[j]] = [perm[j], perm[i]];
+			}
+			const grads = perm.map(() => {
+				const a = rand() * Math.PI * 2;
+				return [Math.cos(a), Math.sin(a)];
+			});
+			const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+			function noise(x, y) {
+				const xi = Math.floor(x),
+					yi = Math.floor(y);
+				const xf = x - xi,
+					yf = y - yi;
+				const g = (i, j) => grads[perm[(perm[(xi + i) & 255] + yi + j) & 255]];
+				const dot = (i, j) => {
+					const [gx, gy] = g(i, j);
+					return gx * (xf - i) + gy * (yf - j);
+				};
+				const u = fade(xf),
+					v = fade(yf);
+				const a = dot(0, 0) + u * (dot(1, 0) - dot(0, 0));
+				const b = dot(0, 1) + u * (dot(1, 1) - dot(0, 1));
+				return a + v * (b - a);
+			}
+			const fbm = (x, y) => noise(x, y) + 0.35 * noise(2 * x + 17, 2 * y + 9);
+
+			// Hills as [x, y, radius, height], in units of the tile height.
+			const HILLS = {
+				marquee: [
+					[2.05, 0.3, 0.38, 1.0],
+					[2.3, 0.8, 0.3, 0.75],
+					[1.7, 0.95, 0.25, 0.45],
+					[0.05, 0.9, 0.35, 0.6],
+					[0.25, -0.05, 0.25, 0.35]
+				],
+				small: [
+					[1.45, 0.25, 0.42, 0.9],
+					[0.05, 0.95, 0.4, 0.7]
+				]
+			}[layout];
+			function height(px, py) {
+				const x = px / H,
+					y = py / H;
+				let z = 0.3 * fbm(x * 1.2, y * 1.2);
+				for (const [hx, hy, r, h] of HILLS) {
+					const d2 = ((x - hx) ** 2 + (y - hy) ** 2) / (r * r);
+					z += h * Math.exp(-d2 / 2);
+				}
+				return z;
+			}
+
+			// Marching squares; each level is stroked as one path so overlapping segments don't darken.
+			const canvas = document.getElementById('c');
+			canvas.width = W;
+			canvas.height = H;
+			const ctx = canvas.getContext('2d');
+			const CELL = 2;
+			const cols = Math.ceil(W / CELL) + 1,
+				rows = Math.ceil(H / CELL) + 1;
+			const field = new Float32Array(cols * rows);
+			for (let j = 0; j < rows; j++)
+				for (let i = 0; i < cols; i++) field[j * cols + i] = height(i * CELL, j * CELL);
+
+			const STEP = 0.06;
+			let min = Infinity,
+				max = -Infinity;
+			for (const v of field) {
+				min = Math.min(min, v);
+				max = Math.max(max, v);
+			}
+			ctx.lineCap = 'round';
+			ctx.lineJoin = 'round';
+			for (let n = Math.ceil(min / STEP); n * STEP < max; n++) {
+				const level = n * STEP;
+				const index = n % 5 === 0;
+				ctx.beginPath();
+				for (let j = 0; j < rows - 1; j++) {
+					for (let i = 0; i < cols - 1; i++) {
+						const a = field[j * cols + i],
+							b = field[j * cols + i + 1];
+						const c = field[(j + 1) * cols + i + 1],
+							d = field[(j + 1) * cols + i];
+						const pts = [];
+						const edge = (v0, v1, x0, y0, x1, y1) => {
+							if (v0 < level !== v1 < level) {
+								const t = (level - v0) / (v1 - v0);
+								pts.push([(x0 + t * (x1 - x0)) * CELL, (y0 + t * (y1 - y0)) * CELL]);
+							}
+						};
+						edge(a, b, i, j, i + 1, j);
+						edge(b, c, i + 1, j, i + 1, j + 1);
+						edge(d, c, i, j + 1, i + 1, j + 1);
+						edge(a, d, i, j, i, j + 1);
+						for (let k = 0; k + 1 < pts.length; k += 2) {
+							ctx.moveTo(pts[k][0], pts[k][1]);
+							ctx.lineTo(pts[k + 1][0], pts[k + 1][1]);
+						}
+					}
+				}
+				ctx.strokeStyle = index ? 'rgba(160, 225, 190, 0.34)' : 'rgba(160, 225, 190, 0.16)';
+				ctx.lineWidth = index ? 1.6 : 1;
+				ctx.stroke();
+			}
+
+			// Quieter lines behind the text.
+			ctx.globalCompositeOperation = 'destination-out';
+			const box = document.querySelector('.content').getBoundingClientRect();
+			const fadeMask =
+				layout === 'marquee'
+					? ctx.createLinearGradient(0, 0, W, 0)
+					: ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, H * 0.62);
+			if (layout === 'marquee') {
+				fadeMask.addColorStop(0, 'rgba(0,0,0,0)');
+				fadeMask.addColorStop(0.3, 'rgba(0,0,0,0.55)');
+				fadeMask.addColorStop(0.72, 'rgba(0,0,0,0.55)');
+				fadeMask.addColorStop(0.95, 'rgba(0,0,0,0)');
+			} else {
+				fadeMask.addColorStop(0, 'rgba(0,0,0,0.6)');
+				fadeMask.addColorStop(1, 'rgba(0,0,0,0)');
+			}
+			ctx.fillStyle = fadeMask;
+			ctx.fillRect(0, 0, W, H);
+
+			const logo = document.getElementById('logo');
+			logo.src = params.get('logo');
+			window.ready = logo.decode().then(() => document.fonts.ready);
+		</script>
+	</body>
+</html>

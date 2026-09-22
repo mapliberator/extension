@@ -126,6 +126,10 @@ describe('firefox specifics', () => {
 		expect(gecko.data_collection_permissions).toEqual({ required: ['none'] });
 	});
 
+	it('is desktop only: no gecko_android, which would list it for Firefox for Android', () => {
+		expect(manifest.browser_specific_settings.gecko_android).toBeUndefined();
+	});
+
 	it('produced the sources zip Mozilla review asks for', () => {
 		const sources = readdirSync(OUTPUT).filter((name) => name.endsWith('-sources.zip'));
 		expect(sources).toHaveLength(1);

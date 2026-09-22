@@ -35,6 +35,8 @@ export default defineConfig({
 								strict_min_version: '140.0',
 								data_collection_permissions: { required: ['none'] }
 							}
+							// No gecko_android: desktop Firefox only. Its presence is what makes AMO
+							// offer an extension on Firefox for Android.
 						}
 					}
 				: { minimum_chrome_version: '116' })
