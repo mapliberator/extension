@@ -50,6 +50,14 @@ e2e/             Playwright specs
 Useful scripts: `npm run dev` / `dev:firefox`, `npm run fake-source`, `npm run pma-validate --
 archive.zip --tree`, `npm run spec:generate`, `npm run fixtures:generate`.
 
+## Website
+
+mapliberator.com lives in [mapliberator/web](https://github.com/mapliberator/web). Its build
+clones this repository and renders `spec/` at `/spec/`, with each JSON Schema at the URL its `$id`
+names. Its tests check that every `mapliberator.com` URL in `src/` and `spec/` resolves, so a new
+URL here needs a page there. The site does not rebuild on its own: redeploy it after pushing a
+spec change.
+
 ## Requests to the platforms
 
 The source tab sends GET requests, plus POST to the exact paths a source allowlists in
@@ -86,5 +94,6 @@ automated; `verify:large` stubs it with a real `FileSystemFileHandle` to drive t
 - **Firefox end to end.** Only the build, `web-ext lint` and the manifest assertions are
   automated. The export flow in Firefox — `persist()` and quota, the OPFS → `downloads` hand-off,
   the optional-permission prompt — stays on the manual checklist (PRD §24).
-- **Phase 6**: store listings, website, licence choice for the spec (CC-BY vs CC0; the code
-  is MIT, see `LICENSE`), legal review, and the real-account smoke test on both browsers.
+- **Phase 6**: store listings, deploying the website (mapliberator/web), licence choice for the
+  spec (CC-BY vs CC0; the code is MIT, see `LICENSE`), legal review, and the real-account smoke
+  test on both browsers.

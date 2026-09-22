@@ -1,8 +1,8 @@
 # Portable Map Archive
 
-**Specification version:** `1.0-draft`
-**Archive major version:** `1` (the value of `version` in `manifest.json`)
-**Status:** Draft. It will be frozen as `1.0` only after an independent implementation has consumed it. Archives carry `"version": 1` either way.
+**Specification version:** `1.0-draft`\
+**Archive major version:** `1` (the value of `version` in `manifest.json`)\
+**Status:** Draft. It will be frozen as `1.0` only after an independent implementation has consumed it. Archives carry `"version": 1` either way.\
 **License:** see [LICENSE.md](LICENSE.md).
 
 A Portable Map Archive (PMA) is a ZIP file holding one person's own map data — recorded tracks, planned routes, waypoints, areas, photos, and the collections that organize them — exported from **one** source platform, in formats that existing tools already read (GPX 1.1, GeoJSON, JSON, original photo bytes).
