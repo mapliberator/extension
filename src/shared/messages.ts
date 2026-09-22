@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const SourceIdSchema = z.enum(['gaiagps', 'alltrails']);
+export const SourceIdSchema = z.enum(['gaiagps', 'alltrails', 'strava']);
 
 export const OpenExportMessage = z.object({
 	type: z.literal('open-export'),

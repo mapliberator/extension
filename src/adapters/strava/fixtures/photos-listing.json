@@ -1,0 +1,194 @@
+{
+	"items": [
+		{
+			"photo_id": "2edaf120-2fda-f2b3-30da-f44631daf5d9",
+			"id": 9101,
+			"media_type": 1,
+			"activity_id": 11200000005,
+			"activity_id_str": "11200000005",
+			"post_id": null,
+			"activity_name_escaped": "🏔️🥾",
+			"caption_escaped": "Summit &amp; snacks &lt;3",
+			"thumbnail": "http://cdn.strava.localhost:4610/LtrxIC_a8rMw2vRGMdr1-96x128.jpg",
+			"large": "http://cdn.strava.localhost:4610/LtrxIC_a8rMw2vRGMdr1-1536x2048.jpg",
+			"video": null,
+			"duration": null,
+			"lat": null,
+			"lng": null,
+			"native": true,
+			"owner_id": 3001,
+			"viewing_athlete_id": 3001,
+			"editable": true,
+			"activity": {
+				"id": 11200000005,
+				"id_str": "11200000005",
+				"athlete_id": 3001,
+				"athlete_id_str": "3001",
+				"name": "🏔️🥾",
+				"description": "Summit push <finally> & a long way down.\nWorth it.",
+				"elapsed_time": 1307,
+				"moving_time": 1242,
+				"elev_gain": 71.8,
+				"distance": 2596.3,
+				"type": "Hike",
+				"private": 0,
+				"start_date": "2024-06-22T17:04:27Z"
+			},
+			"dimensions": {
+				"large": {
+					"height": 2048,
+					"width": 1536
+				},
+				"thumbnail": {
+					"height": 128,
+					"width": 96
+				}
+			},
+			"is_sponsored_photo": false,
+			"enhanced_photo": null
+		},
+		{
+			"photo_id": "cf2d9845-ce2d-96b2-cd2d-951fcc2d938c",
+			"id": 9102,
+			"media_type": 2,
+			"activity_id": 11200000005,
+			"activity_id_str": "11200000005",
+			"post_id": null,
+			"activity_name_escaped": "🏔️🥾",
+			"caption_escaped": "",
+			"thumbnail": "http://cdn.strava.localhost:4610/zy2YRc4tlrLNLZUfzC2T-96x128.jpg",
+			"large": "http://cdn.strava.localhost:4610/zy2YRc4tlrLNLZUfzC2T-1536x2048.jpg",
+			"video": "http://cdn.strava.localhost:4610/zy2YRc4tlrLNLZUfzC2T.mp4",
+			"duration": 12.5,
+			"lat": null,
+			"lng": null,
+			"native": true,
+			"owner_id": 3001,
+			"viewing_athlete_id": 3001,
+			"editable": true,
+			"activity": {
+				"id": 11200000005,
+				"id_str": "11200000005",
+				"athlete_id": 3001,
+				"athlete_id_str": "3001",
+				"name": "🏔️🥾",
+				"description": "Summit push <finally> & a long way down.\nWorth it.",
+				"elapsed_time": 1307,
+				"moving_time": 1242,
+				"elev_gain": 71.8,
+				"distance": 2596.3,
+				"type": "Hike",
+				"private": 0,
+				"start_date": "2024-06-22T17:04:27Z"
+			},
+			"dimensions": {
+				"large": {
+					"height": 2048,
+					"width": 1536
+				},
+				"thumbnail": {
+					"height": 128,
+					"width": 96
+				}
+			},
+			"is_sponsored_photo": false,
+			"enhanced_photo": null
+		},
+		{
+			"photo_id": "e8a01bbe-e9a0-1d51-e6a0-1898e7a01a2b",
+			"id": 9103,
+			"media_type": 1,
+			"activity_id": 11200000004,
+			"activity_id_str": "11200000004",
+			"post_id": null,
+			"activity_name_escaped": "Trainer spin",
+			"caption_escaped": "Pain cave",
+			"thumbnail": "http://cdn.strava.localhost:4610/6KAbvumgHVHmoBiY56Aa-96x128.jpg",
+			"large": "http://cdn.strava.localhost:4610/6KAbvumgHVHmoBiY56Aa-1536x2048.jpg",
+			"video": null,
+			"duration": null,
+			"lat": null,
+			"lng": null,
+			"native": true,
+			"owner_id": 3001,
+			"viewing_athlete_id": 3001,
+			"editable": true,
+			"activity": {
+				"id": 11200000004,
+				"id_str": "11200000004",
+				"athlete_id": 3001,
+				"athlete_id_str": "3001",
+				"name": "Trainer spin",
+				"description": null,
+				"elapsed_time": 2700,
+				"moving_time": 2565,
+				"elev_gain": 0,
+				"distance": 0,
+				"type": "Ride",
+				"private": 0,
+				"start_date": "2024-06-20T16:06:41Z"
+			},
+			"dimensions": {
+				"large": {
+					"height": 2048,
+					"width": 1536
+				},
+				"thumbnail": {
+					"height": 128,
+					"width": 96
+				}
+			},
+			"is_sponsored_photo": false,
+			"enhanced_photo": null
+		},
+		{
+			"photo_id": "6a08b593-6908-b400-6c08-b8b96b08b726",
+			"id": 9104,
+			"media_type": 1,
+			"activity_id": 11200000003,
+			"activity_id_str": "11200000003",
+			"post_id": null,
+			"activity_name_escaped": "Sentier des Crêtes – Übergang à l’été",
+			"caption_escaped": "Ridge",
+			"thumbnail": "http://cdn.strava.localhost:4610/agi1k2kItABsCLi5awi3-96x128.jpg",
+			"large": "http://cdn.strava.localhost:4610/agi1k2kItABsCLi5awi3-1536x2048.jpg",
+			"video": null,
+			"duration": null,
+			"lat": null,
+			"lng": null,
+			"native": true,
+			"owner_id": 3001,
+			"viewing_athlete_id": 3001,
+			"editable": true,
+			"activity": {
+				"id": 11200000003,
+				"id_str": "11200000003",
+				"athlete_id": 3001,
+				"athlete_id_str": "3001",
+				"name": "Sentier des Crêtes – Übergang à l’été",
+				"description": null,
+				"elapsed_time": 907,
+				"moving_time": 862,
+				"elev_gain": 41.8,
+				"distance": 1660.7,
+				"type": "TrailRun",
+				"private": 0,
+				"start_date": "2024-06-14T16:35:34Z"
+			},
+			"dimensions": {
+				"large": {
+					"height": 2048,
+					"width": 1536
+				},
+				"thumbnail": {
+					"height": 128,
+					"width": 96
+				}
+			},
+			"is_sponsored_photo": false,
+			"enhanced_photo": null
+		}
+	],
+	"next_cursor": null,
+	"has_more": false
+}

@@ -2,6 +2,7 @@ import type { AdapterFactory, SourceId } from '../shared/models';
 import { createAllTrailsAdapter } from './alltrails';
 import { createGaiaAdapter } from './gaia';
 import { sourceHosts } from './hosts';
+import { createStravaAdapter } from './strava';
 
 export interface SourceDescriptor {
 	id: SourceId;
@@ -23,6 +24,12 @@ export const SOURCES: SourceDescriptor[] = [
 		label: 'AllTrails',
 		siteHosts: ['alltrails.com'],
 		create: createAllTrailsAdapter
+	},
+	{
+		id: 'strava',
+		label: 'Strava',
+		siteHosts: ['strava.com'],
+		create: createStravaAdapter
 	}
 ];
 

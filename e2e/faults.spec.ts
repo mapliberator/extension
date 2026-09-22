@@ -251,6 +251,74 @@ test('faults: AllTrails login redirect mid-run pauses for re-authentication, the
 	assertPatientPacing(fake, platform);
 });
 
+test('faults: Strava session lost at the routes query re-mints its token after sign-in; a missing GPX export falls back to streams', async ({
+	context,
+	extensionId,
+	fake,
+	requests,
+	downloadsDir
+}) => {
+	const platform = 'strava' as const;
+	const expected = fake.expected(platform);
+	const [noExport] = expected.ids.tracks;
+	const page = await openExportPage(context, extensionId, platform);
+	await preflight(page, expected.account.displayName);
+	fake.setFaults([
+		{
+			platform,
+			match: `^/activities/${noExport}/export_gpx$`,
+			action: { kind: 'status', status: 404 }
+		},
+		{
+			platform,
+			match: '^/api/next/data/routes/my-routes$',
+			count: 1,
+			action: { kind: 'expire-session' }
+		}
+	]);
+	fake.resetLog();
+	await page.getByTestId('start-export').click();
+
+	// The query is refused with a bare 403: the run waits for the user to sign in again.
+	const paused = page.getByTestId('paused');
+	await expect(paused).toHaveAttribute('data-reason', 'auth', { timeout: 60_000 });
+	fake.login(platform);
+	await page.getByTestId('resume').click();
+
+	const archivePath = await waitForArchive(page, downloadsDir);
+	const validation = await validateArchive(archivePath);
+	expect(validation.errors).toEqual([]);
+	const archive = await openArchive(archivePath);
+	const manifest = archive.json('manifest.json');
+	expect(manifest.status).toBe('complete');
+	expect(manifest.contents).toEqual(expected.counts);
+	expect(archive.json('errors.json')).toEqual([]);
+
+	// The token of the lost session was never sent again: every query after sign-in had a new one.
+	const queries = fake
+		.log()
+		.filter((entry) => entry.platform === platform && entry.path.endsWith('/my-routes'));
+	expect(queries.map((entry) => entry.status)).toEqual([403, 200, 200]);
+
+	const sidecars = archive.names
+		.filter((name) => name.startsWith('tracks/') && name.endsWith('.json'))
+		.map((name) => archive.json(name));
+	for (const sidecar of sidecars) {
+		const fallback = sidecar.source.id === noExport;
+		expect(sidecar.geometrySource).toBe(fallback ? 'serialized' : 'native-gpx');
+		if (fallback) {
+			// Rebuilt from streams: every point the platform's own file has, with times.
+			const served = fake.nativeGpx(platform, 'track', noExport!).toString('utf8');
+			expect(sidecar.stats.pointCount).toBe(served.split('<trkpt').length - 1);
+			expect(archive.read(`tracks/${sidecar.file}`).toString('utf8')).toContain('<time>');
+		}
+	}
+
+	expect(findSentinels(archivePath, archive, allSentinels(platform))).toEqual({});
+	assertOnlyFakeSourceHosts(requests, fake);
+	assertPatientPacing(fake, platform);
+});
+
 test('faults: schema drift on a listing endpoint fails the run, naming adapter and version', async ({
 	context,
 	extensionId,

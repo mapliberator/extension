@@ -1,8 +1,8 @@
 # Phase 0 probe findings
 
 Recorded 2026-09-21 from a signed-in Chrome session, same-origin `fetch` from a page on each
-site. Only response **shapes** were recorded (keys, types, string lengths, array lengths) — no
-values, IDs, tokens or signed URLs. Notation: `s32` = string of length 32, `n` = number,
+site (Gaia GPS, AllTrails, Strava). Only response **shapes** were recorded (keys, types, string
+lengths, array lengths) — no values, IDs, tokens or signed URLs. Notation: `s32` = string of length 32, `n` = number,
 `b` = boolean, `dt<…>` = datetime string in that layout, `[185x {…}]` = array of 185 such items.
 
 ## Gaia GPS (`https://www.gaiagps.com`)
@@ -234,6 +234,141 @@ user photos. `images.alltrails.com` in `src/adapters/hosts.ts` is unverified.
 - maximum `limit` (500 was accepted)
 - native GPX/KML download endpoint
 - `mapPhotos` entries and `indexedHeartRateData`
+
+## Strava (`https://www.strava.com`)
+
+Probed 2026-09-21 from a signed-in session, same-origin `fetch`, same notation as above. The
+account holds 592 activities (5 without GPS), 21 routes and 288 photos. Strava's public REST API
+(`/api/v3/…`) wants an OAuth token and answers `401` to a cookie session, so everything below is
+the site's own web endpoints.
+
+**What a Strava account holds.** Activities (recordings) and routes (planned) are the user's
+geodata. There are no waypoints, areas or folders. Routes the user starred from other athletes
+are saved content. Segments are platform content and are not exported.
+
+### Session and request shape
+
+- Cookie session. The JSON listings answer with the **HTML page** unless the request carries
+  `X-Requested-With: XMLHttpRequest`; `Accept: application/json` alone is not enough. With that
+  header, a signed-out request gets `401` with an empty `application/json` body.
+- GPX exports need no extra header. Signed out, they redirect to `/login`.
+- `/robots.txt` is 1.6 KB of text, a good parking page. Every call below, both POSTs included,
+  works from it with `referrerPolicy: 'no-referrer'`.
+
+### Account — `GET /frontend/athletes/current`
+
+`{ currentAthlete: { id:n, id_str:s7, external_identity_hash:s64, super_user:b, firstname, lastname, gender, athlete_type:n, is_subscriber:b, subscription_platform:n, product_access:n, is_trial_eligible:b, profile_medium:url, measurement_units:s6, features:{}, experiments:{}, preferences:{…}, in_preview:b, num_days_remaining_in_preview:null, dob_required:b, age:n }, pageContext:{…} }`.
+Signed out it still answers `200`, with `currentAthlete: null` and sign-in URLs in
+`pageContext.authenticationData`. This is what the dashboard loads.
+
+### Activities — `GET /athlete/training_activities?page=<n>&per_page=<n>` (XHR)
+
+`{ models:[20x Activity], page:n, perPage:n, total:n }`. **`per_page` is capped at 20**: 200 and
+500 both came back as `perPage: 20`. An empty page follows the last one.
+
+Activity: `id:n, id_str:s11, name, sport_type, display_type, activity_type_display_name, private:b, bike_id, athlete_gear_id, start_date:s, start_date_local_raw:n, start_time:dt<0000-00-00T00:00:00+0000>, start_day, distance:s, distance_raw:n, long_unit, short_unit, moving_time:s, moving_time_raw:n, elapsed_time:s, elapsed_time_raw:n, trainer:b, static_map:url, has_latlng:b, commute:b, elevation_gain:s, elevation_unit, elevation_gain_raw:n, description:null|s, activity_url:url, activity_url_for_twitter:url, twitter_msg:s, is_changing_type:b, suffer_score:n, tags:{…}, selected_tag_type, flagged:b, hide_power:b, hide_heartrate:b, visibility:s, embeddable:b`.
+
+- `start_time` is UTC written as `+0000`, which is not RFC 3339. `start_date_local_raw` is local
+  wall time dressed up as epoch seconds; it differed from `start_time` by the local offset.
+- Checked against streams: `distance_raw` is metres (equal to the last `distance` stream value),
+  `elapsed_time_raw` is seconds (equal to the last `time` value), and `elevation_gain_raw` is
+  metres (a smoothed gain, 0.93× the raw altitude sum).
+- `visibility` was `everyone` or `only_me` (`private: true` on the latter); `followers_only` is
+  the site's third setting and was not observed. Names and descriptions come unescaped
+  (`&`, `<` appear raw); descriptions may contain newlines.
+- `has_latlng: false` on indoor sessions (trainer rides and runs, pool swims). `VirtualRide`
+  activities do have GPS.
+- No owner field: the listing is the signed-in athlete's own activities.
+
+### Activity geometry
+
+- **Native GPX:** `GET /activities/<id>/export_gpx` → `200`, `Content-Type: application/octet-stream`,
+  `Content-Disposition: attachment`, no `Content-Length`. GPX 1.1, `creator="StravaGPX"`,
+  namespaces `gpxtpx` (TrackPointExtension v1) and `gpxx`:
+  `gpx > metadata > time; trk > name, type, trkseg (one) > trkpt[lat,lon] > ele, time, extensions > power, gpxtpx:TrackPointExtension > gpxtpx:hr, gpxtpx:cad`.
+  The file is large: 3.2 MB for a 10 k-point run. No `desc`. An activity without GPS **redirects
+  to `/dashboard`** (a 200 HTML page), not to an error.
+- `export_original` returns the uploaded file (FIT here) and `export_tcx` a TCX. Neither is used.
+- **Streams (fallback):** `GET /activities/<id>/streams?stream_types[]=latlng&stream_types[]=altitude&stream_types[]=time`
+  → `{ latlng:[Nx [lat,lng]], altitude:[Nx n], time:[Nx n] }`. These are parallel arrays of equal
+  length, same N as the GPX. `time` is seconds from the start (`0, 1, 2…`). Without GPS `latlng`
+  is simply absent. It answers JSON with or without the XHR header. `distance`, `moving`,
+  `heartrate` are available too.
+- `/activities/<id>.json` and `/overview` answer `application/json` with an HTML body. No JSON
+  activity detail was found; the listing has everything needed.
+
+### Routes — POST only
+
+The routes page (`/athlete/routes`, a Next.js page) lists routes with
+`POST /api/next/data/routes/my-routes`. `GET` → `405`. No GET listing exists. These were tried:
+`/athletes/<id>/routes`, `/athlete/routes.json`, `/athlete/routes?format=json`, the Next.js
+`__NEXT_DATA__` (no routes in it), `/_next/data`, the profile and dashboard HTML (no route ids),
+and the route bundle's endpoint strings. The public `/api/v3/…` needs OAuth.
+
+- The POST needs an `x-csrf-token` header. The token comes from
+  **`POST /api/next/mint-csrf-token`** (no body, no headers) → `{ token:s86 }`. A `GET` there is
+  `405 {error}`. The Rails `<meta name="csrf-token">` on older pages is a different token and
+  gets a `500`.
+- The token is **bound to the session**: one minted with `credentials: 'omit'` is refused. Several
+  minted in a row are all valid at once. Without it, with a wrong one, or signed out: `403`
+  with an empty body.
+- Body: `{ pageSize:n, after:s, searchArgs:{ query:s, onlyStarred:b, createdBy:"Any", routeTypes?:[…], elevGainMin:n, elevGainMax:null, distanceMin:n, distanceMax:null }, resolutions:[{height,width,isRetina}] }`.
+  Without `searchArgs` → `500`. `createdBy` other than `"Any"` (`"Me"`) → `500`. **Omitting
+  `routeTypes` (or `null`) applies no type filter.** The page itself sends all 31 type names,
+  so a type added later would be missed that way. An empty list gives nothing and an unknown
+  name gives `500`. `resolutions: []` just drops the map thumbnails.
+- Response: `{ me:{ id:s7, measurementPreference:s, searchRoutes:{ nodes:[Route], pageInfo:{ endCursor:s, startCursor:s, hasNextPage:b, hasPreviousPage:b } } } }`.
+  Route: `title, id:s19, isStarred:b, elevationGain:n, length:n, estimatedTime:{expectedTime:n}, creationTime:dt<…Z>, themedMapImages:[{lightUrl:url}], routeType:s, athlete:{id:s7}, isPrivate:b`.
+  **Route ids are 19-digit strings, past 2^53**: they must never go through a JS number.
+  `length` is metres. There is no description in the node.
+- Paging: `after:"0"` for the first page, then the previous `endCursor`. The cursor is the
+  0-based index of that page's last item (pages of 5 gave `4, 9, 14, 19`). `pageSize: 50` and
+  `200` returned all 21.
+- All 21 routes were the account's own, and all starred. Whether other athletes' starred routes
+  appear here (with another `athlete.id`) is **unverified**. The adapter treats them as
+  references if they do.
+
+### Route geometry
+
+`GET /routes/<id>/export_gpx` → `200 application/octet-stream`, private routes included.
+`gpx > metadata > name, author > name, link; copyright > year, license; link` and
+`trk > name, link, type, trkseg > trkpt[lat,lon] > ele`, with **no times**. `/routes/<id>/export_tcx`
+also works. There is no JSON geometry to fall back on: the route page's `__NEXT_DATA__` has legs
+as encoded polylines, but only inside HTML.
+
+### Photos — `GET /athletes/<id>/photos?per_page=<n>&cursor=<c>` (XHR)
+
+`{ items:[Photo], next_cursor:s ("<epoch>,<id>"), has_more:b }`. The default page is 10;
+`per_page` is capped at 20. `cursor=<next_cursor>` pages; `page`, `before`, `after` and `offset`
+are ignored (first page again), and an unknown cursor gives an empty page. All 288 photos came
+back over 15 pages, with no repeats.
+
+Photo: `photo_id:s36 (UUID), id:n, media_type:n (1), activity_id:n, activity_id_str:s11, post_id:null, activity_name_escaped:s, caption_escaped:s (HTML-escaped), thumbnail:url, large:url, video:null, duration:null, lat:null, lng:null, native:b, owner_id:n, viewing_athlete_id:n, editable:b, activity:{ id, id_str, athlete_id, athlete_id_str, name, description, elapsed_time, moving_time, elev_gain, distance, type, private:n, start_date:dt<…Z> }, dimensions:{ large:{height,width}, thumbnail:{height,width} }, is_sponsored_photo:b, enhanced_photo:null`.
+
+- `lat`/`lng` were null on every listed photo, though the activity page's own photo list has
+  them. There is no upload or capture time.
+- `/activities/<id>/photos` (with or without `photo_sources=true`) is `404`. An activity's photos
+  are otherwise only in its HTML page (`data-react-props` of `MediaThumbnailList`).
+- **Photo files** live on `https://dgtzuqphqg23d.cloudfront.net/<token>-<W>x<H>.jpg`. The URL is
+  unsigned (no query) and needs no session. The host sends **no CORS headers** (a page `fetch`
+  fails and `<img>` loads), so the extension worker needs a host permission for it. `large` was
+  named `-1536x2048` and delivered 1200×1600, so it is the largest rendition offered, not
+  necessarily the upload. Other sizes in the name (`-0x0`, bare `.jpg`, larger) do not exist.
+- Videos (`media_type` ≠ 1, `video` set) are unobserved. The adapter skips any item with a
+  `video`.
+
+### Signed out
+
+`/frontend/athletes/current` → `200 { currentAthlete: null }`. XHR listings and streams → `401`
+with an empty body. GPX exports → `302 /login` → HTML. The routes query → `403` empty. The mint
+still answers `200 { token }` with a token no session accepts.
+
+### Still unknown for Strava
+
+- other athletes' routes in the routes query; `followers_only` activities; video items in the
+  photo listing
+- rate limits on the GPX exports (3 MB each; the adapter paces at 500 ms, one at a time)
+- whether `large` is ever the original upload
 
 ## Still unknown for Gaia
 

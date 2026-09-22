@@ -112,6 +112,13 @@ export class Lane {
 		return at - now;
 	}
 
+	/** A further request inside the current attempt: wait out the floor, like a dispatch. */
+	private async paced(): Promise<void> {
+		const wait = this.reserveDispatch();
+		if (wait > 0) await sleep(wait, this.controller.signal);
+		this.onEvent?.({ type: 'dispatch' });
+	}
+
 	private backoff(attempt: number): number {
 		const exponential = this.timings.backoffBaseMs * 2 ** (attempt - 1);
 		const capped = Math.min(exponential, this.timings.backoffMaxMs);
@@ -120,9 +127,11 @@ export class Lane {
 
 	/**
 	 * Run one logical request until it succeeds, fails for good, or the run is cancelled.
-	 * `attempt` performs exactly one try and classifies the result.
+	 * `attempt` performs exactly one try and classifies the result. An attempt that needs a
+	 * second request (a token first, then the query) awaits `paced()` before it, so the pacing
+	 * floor holds between the two as between any others.
 	 */
-	async run<T>(attempt: () => Promise<AttemptOutcome<T>>): Promise<T> {
+	async run<T>(attempt: (paced: () => Promise<void>) => Promise<AttemptOutcome<T>>): Promise<T> {
 		let attempts = 0;
 		let pauses = 0;
 		let tabRecoveries = 0;
@@ -136,7 +145,7 @@ export class Lane {
 				if (wait > 0) await sleep(wait, this.controller.signal);
 				if (this.controller.state !== 'running') continue;
 				this.onEvent?.({ type: 'dispatch' });
-				outcome = await attempt();
+				outcome = await attempt(() => this.paced());
 			} finally {
 				this.release();
 			}

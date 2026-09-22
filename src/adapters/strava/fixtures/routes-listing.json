@@ -1,0 +1,84 @@
+{
+	"me": {
+		"id": "3001",
+		"measurementPreference": "meters",
+		"searchRoutes": {
+			"nodes": [
+				{
+					"title": "Morning loop / ridge ../summit",
+					"id": "3401234567890123457",
+					"isStarred": true,
+					"elevationGain": 43.6,
+					"length": 2028.8,
+					"estimatedTime": {
+						"expectedTime": 812
+					},
+					"creationTime": "2024-06-03T14:26:20Z",
+					"themedMapImages": [],
+					"routeType": "Run",
+					"athlete": {
+						"id": "3001"
+					},
+					"isPrivate": false
+				},
+				{
+					"title": "Gravel loop",
+					"id": "3401234567890123461",
+					"isStarred": true,
+					"elevationGain": 70.7,
+					"length": 3096.3,
+					"estimatedTime": {
+						"expectedTime": 1239
+					},
+					"creationTime": "2024-06-06T14:26:20Z",
+					"themedMapImages": [],
+					"routeType": "Ride",
+					"athlete": {
+						"id": "3001"
+					},
+					"isPrivate": true
+				},
+				{
+					"title": "Classic loop by someone else",
+					"id": "3408765432109876543",
+					"isStarred": true,
+					"elevationGain": 0,
+					"length": 1181.5,
+					"estimatedTime": {
+						"expectedTime": 473
+					},
+					"creationTime": "2024-06-07T14:26:20Z",
+					"themedMapImages": [],
+					"routeType": "Ride",
+					"athlete": {
+						"id": "3999"
+					},
+					"isPrivate": false
+				},
+				{
+					"title": "Very long name that keeps going and going to exercise the filename sanitizer limits across ridges, valleys, rivers, meadows, passes and several more words than anyone would type",
+					"id": "3401234567890123499",
+					"isStarred": true,
+					"elevationGain": 35,
+					"length": 1366.5,
+					"estimatedTime": {
+						"expectedTime": 547
+					},
+					"creationTime": "2024-06-11T14:26:20Z",
+					"themedMapImages": [],
+					"routeType": "Hike",
+					"athlete": {
+						"id": "3001"
+					},
+					"isPrivate": false
+				}
+			],
+			"pageInfo": {
+				"endCursor": "3",
+				"startCursor": "0",
+				"hasNextPage": false,
+				"hasPreviousPage": false
+			}
+		}
+	}
+}

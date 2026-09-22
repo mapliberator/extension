@@ -34,7 +34,8 @@ const AT_KEY = 'fakeatkey0123456789abcdef0123456';
 
 const HOSTS: Record<Platform, string> = {
 	gaiagps: 'gaia.localhost',
-	alltrails: 'alltrails.localhost'
+	alltrails: 'alltrails.localhost',
+	strava: 'strava.localhost'
 };
 
 /** node:http to 127.0.0.1 with an explicit Host header (fetch cannot set Host). */
@@ -142,6 +143,7 @@ describe('fake-source (small dataset)', () => {
 		fake.setFaults([]);
 		fake.login('gaiagps');
 		fake.login('alltrails');
+		fake.login('strava');
 		fake.resetLog();
 	});
 
@@ -161,6 +163,9 @@ describe('fake-source (small dataset)', () => {
 		});
 		expect(fake.sessionCookie('alltrails').domain).toBe('alltrails.localhost');
 		expect(fake.sessionCookie('alltrails').value).toBe(SENTINELS.sessionCookie.alltrails);
+		expect(fake.origin('strava')).toBe(`http://strava.localhost:${fake.port}`);
+		expect(fake.assetOrigin('strava')).toBe(`http://cdn.strava.localhost:${fake.port}`);
+		expect(fake.sessionCookie('strava').domain).toBe('strava.localhost');
 	});
 
 	it('routes by Host and sends no CORS headers', async () => {
@@ -225,7 +230,7 @@ describe('fake-source (small dataset)', () => {
 		});
 
 		it('serves the home page and robots.txt', async () => {
-			for (const platform of ['gaiagps', 'alltrails'] as Platform[]) {
+			for (const platform of ['gaiagps', 'alltrails', 'strava'] as Platform[]) {
 				const signedIn = await site(fake, platform, '/');
 				expect(signedIn.status).toBe(200);
 				expect(signedIn.text).toContain(SENTINELS.email);
@@ -727,6 +732,223 @@ describe('fake-source (small dataset)', () => {
 		});
 	});
 
+	describe('Strava shape', () => {
+		const XHR = { 'X-Requested-With': 'XMLHttpRequest' };
+		const get = (path: string, opts: HttpOptions = {}) =>
+			site(fake, 'strava', path, { ...opts, headers: { ...XHR, ...opts.headers } });
+		const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
+			site(fake, 'strava', path, {
+				method: 'POST',
+				body: JSON.stringify(body),
+				headers: { ...XHR, 'Content-Type': 'application/json', ...headers }
+			});
+		const mint = async (): Promise<string> =>
+			(await site(fake, 'strava', '/api/next/mint-csrf-token', { method: 'POST' })).json().token;
+		const query = (after = '0', extra: Record<string, unknown> = {}) => ({
+			pageSize: 50,
+			after,
+			searchArgs: { query: '', onlyStarred: false, createdBy: 'Any', ...extra },
+			resolutions: []
+		});
+		const routesPage = async (after = '0', extra: Record<string, unknown> = {}) =>
+			post('/api/next/data/routes/my-routes', query(after, extra), {
+				'x-csrf-token': await mint()
+			});
+
+		it('JSON listings need X-Requested-With; without it they answer with the HTML page', async () => {
+			const page = await site(fake, 'strava', '/athlete/training_activities?page=1&per_page=20');
+			expect(page.status).toBe(200);
+			expect(page.headers['content-type']).toMatch(/^text\/html/);
+			const listing = await get('/athlete/training_activities?page=1&per_page=20');
+			expect(listing.headers['content-type']).toMatch(/^application\/json/);
+			expect(Object.keys(listing.json())).toEqual(['models', 'page', 'perPage', 'total']);
+			const photos = await site(fake, 'strava', '/athletes/3001/photos');
+			expect(photos.headers['content-type']).toMatch(/^text\/html/);
+			// The account endpoint and the streams answer either way.
+			expect((await site(fake, 'strava', '/frontend/athletes/current')).json()).toHaveProperty(
+				'currentAthlete.id',
+				3001
+			);
+		});
+
+		it('activities page with page=, per_page capped (at 20, and at the dataset page size)', async () => {
+			const expected = fake.expected('strava');
+			const p1 = (await get('/athlete/training_activities?page=1&per_page=500')).json();
+			expect(p1).toMatchObject({ page: 1, perPage: 3, total: 5 });
+			expect(p1.models).toHaveLength(3);
+			const p2 = (await get('/athlete/training_activities?page=2&per_page=500')).json();
+			expect(p2.models).toHaveLength(2);
+			expect((await get('/athlete/training_activities?page=3')).json().models).toEqual([]);
+			const all = [...p1.models, ...p2.models];
+			expect(all.filter((a) => a.has_latlng).map((a) => a.id_str)).toEqual(expected.ids.tracks);
+			for (const a of all) {
+				expect(a.id_str).toBe(String(a.id));
+				expect(a.start_time).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\+0000$/);
+				expect(typeof a.distance_raw).toBe('number');
+				expect(a.trainer).toBe(!a.has_latlng);
+			}
+			expect(new Set(all.map((a) => a.visibility))).toEqual(
+				new Set(['everyone', 'only_me', 'followers_only'])
+			);
+		});
+
+		it('GPX exports: octet-stream, byte-identical to nativeGpx(); no GPS bounces to the dashboard', async () => {
+			const expected = fake.expected('strava');
+			const id = expected.ids.tracks[0]!;
+			const gpx = await site(fake, 'strava', `/activities/${id}/export_gpx`);
+			expect(gpx.status).toBe(200);
+			expect(gpx.headers['content-type']).toBe('application/octet-stream');
+			expect(gpx.body.equals(fake.nativeGpx('strava', 'track', id))).toBe(true);
+			expect(gpx.text).toContain('creator="StravaGPX"');
+			const indoor = await site(fake, 'strava', '/activities/11200000004/export_gpx');
+			expect(indoor.status).toBe(302);
+			expect(indoor.headers.location).toBe('/dashboard');
+			expect((await site(fake, 'strava', '/dashboard')).status).toBe(200);
+
+			const route = expected.ids.routes[0]!;
+			const routeGpx = await site(fake, 'strava', `/routes/${route}/export_gpx`);
+			expect(routeGpx.body.equals(fake.nativeGpx('strava', 'route', route))).toBe(true);
+			// Planned: no per-point times.
+			expect(/<trkpt[^>]*>(?:(?!<\/trkpt>)[^])*<time>/.test(routeGpx.text)).toBe(false);
+		});
+
+		it('streams: only the types asked for; times count seconds from the start', async () => {
+			const id = fake.expected('strava').ids.tracks[0]!;
+			const streams = (
+				await get(`/activities/${id}/streams?stream_types[]=latlng&stream_types[]=time`)
+			).json();
+			expect(Object.keys(streams)).toEqual(['latlng', 'time']);
+			expect(streams.time[0]).toBe(0);
+			expect(streams.latlng).toHaveLength(streams.time.length);
+			const gpx = fake.nativeGpx('strava', 'track', id).toString('utf8');
+			expect(gpx).toContain(`lat="${streams.latlng[0][0].toFixed(6)}"`);
+			const indoor = (
+				await get('/activities/11200000004/streams?stream_types[]=latlng&stream_types[]=time')
+			).json();
+			expect(Object.keys(indoor)).toEqual(['time']);
+		});
+
+		it('routes: POST only, with a token minted for this session; ids are 19-digit strings', async () => {
+			expect((await get('/api/next/data/routes/my-routes')).status).toBe(405);
+			expect((await get('/api/next/mint-csrf-token')).status).toBe(405);
+			const none = await post('/api/next/data/routes/my-routes', query());
+			expect(none.status).toBe(403);
+			expect(none.body).toHaveLength(0);
+			const token = await mint();
+			expect(token).toContain(SENTINELS.csrfToken);
+			const page = await routesPage();
+			expect(page.status).toBe(200);
+			const { me } = page.json();
+			expect(me.id).toBe('3001');
+			expect(me.searchRoutes.nodes).toHaveLength(3);
+			expect(me.searchRoutes.pageInfo).toMatchObject({ endCursor: '2', hasNextPage: true });
+			const rest = (await routesPage('2')).json().me.searchRoutes;
+			expect(rest.nodes).toHaveLength(1);
+			expect(rest.pageInfo.hasNextPage).toBe(false);
+			const nodes = [...me.searchRoutes.nodes, ...rest.nodes];
+			for (const node of nodes) {
+				expect(node.id).toMatch(/^\d{19}$/);
+				expect(typeof node.athlete.id).toBe('string');
+			}
+			const expected = fake.expected('strava');
+			expect(nodes.filter((n) => n.athlete.id === '3001').map((n) => n.id)).toEqual(
+				expected.ids.routes
+			);
+			expect(expected.references).toEqual(
+				nodes
+					.filter((n) => n.athlete.id !== '3001')
+					.map((n) => ({
+						name: n.title,
+						url: `${fake.origin('strava')}/routes/${n.id}`,
+						sourceId: n.id,
+						coordinate: null
+					}))
+			);
+			// A type filter applies; without searchArgs the server falls over.
+			expect(
+				(await routesPage('0', { routeTypes: ['Hike'] })).json().me.searchRoutes.nodes
+			).toHaveLength(1);
+			expect((await routesPage('0', { routeTypes: [] })).json().me.searchRoutes.nodes).toEqual([]);
+			const broken = await post(
+				'/api/next/data/routes/my-routes',
+				{ pageSize: 50, after: '0' },
+				{ 'x-csrf-token': await mint() }
+			);
+			expect(broken.status).toBe(500);
+		});
+
+		it('the token dies with the session; signing in again needs a fresh one', async () => {
+			const old = await mint();
+			fake.logout('strava');
+			// Signed out, the mint still answers — with a token nothing accepts.
+			const anonymous = await mint();
+			expect(anonymous).not.toBe(old);
+			const signedOut = await post('/api/next/data/routes/my-routes', query(), {
+				'x-csrf-token': anonymous
+			});
+			expect(signedOut.status).toBe(403);
+			fake.login('strava');
+			const stale = await post('/api/next/data/routes/my-routes', query(), { 'x-csrf-token': old });
+			expect(stale.status).toBe(403);
+			expect((await routesPage()).status).toBe(200);
+		});
+
+		it('signed out: null athlete, 401 for XHR listings, sign-in page for GPX', async () => {
+			const opts = { cookie: false } as const;
+			const current = (await get('/frontend/athletes/current', opts)).json();
+			expect(current.currentAthlete).toBeNull();
+			for (const path of [
+				'/athlete/training_activities?page=1',
+				'/athletes/3001/photos',
+				'/activities/11200000005/streams?stream_types[]=time'
+			]) {
+				const res = await get(path, opts);
+				expect(res.status).toBe(401);
+				expect(res.body).toHaveLength(0);
+			}
+			const gpx = await site(fake, 'strava', '/activities/11200000005/export_gpx', opts);
+			expect(gpx.status).toBe(302);
+			expect(gpx.headers.location).toBe('/login');
+		});
+
+		it('photos: cursor paging, a video among them, files on the photo host without a session', async () => {
+			const expected = fake.expected('strava');
+			const items: any[] = [];
+			let cursor: string | null = null;
+			do {
+				const q: string = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
+				const page: any = (await get(`/athletes/3001/photos?per_page=20${q}`)).json();
+				expect(page.items.length).toBeLessThanOrEqual(3);
+				items.push(...page.items);
+				cursor = page.has_more ? page.next_cursor : null;
+			} while (cursor);
+			expect(items).toHaveLength(4);
+			expect(items.filter((p) => p.video === null).map((p) => p.photo_id)).toEqual(
+				expected.ids.photos
+			);
+			expect(items.every((p) => p.owner_id === 3001 && p.lat === null)).toBe(true);
+			expect(items[0].caption_escaped).toBe('Summit &amp; snacks &lt;3');
+			expect((await get('/athletes/3001/photos?cursor=1,1')).json().items).toEqual([]);
+			expect((await get('/athletes/3999/photos')).status).toBe(404);
+
+			fake.resetLog();
+			const { host, path } = toPath(items[0].large);
+			expect(host).toBe('cdn.strava.localhost');
+			const image = await http(fake, host, path);
+			expect(image.status).toBe(200);
+			expect(image.headers['content-type']).toBe('image/jpeg');
+			expect(Number(image.headers['content-length'])).toBe(image.body.length);
+			expect(fake.stats('strava')).toMatchObject({ apiRequests: 0, assetRequests: 1 });
+		});
+
+		it('expected(): GPS activities, own routes, photos without the video, one starred collection', () => {
+			expect(fake.expected('strava')).toMatchObject({
+				account: { id: '3001', displayName: 'Test R.' },
+				counts: { tracks: 4, routes: 3, waypoints: 0, areas: 0, collections: 1, photos: 3 }
+			});
+		});
+	});
+
 	describe('polyline + sentinels', () => {
 		it('encodes the canonical Google example', () => {
 			const pts: [number, number][] = [
@@ -772,6 +994,7 @@ describe('fake-source (small dataset)', () => {
 			const mine = (o: { summary: any }) => !theirs.has(o.summary.id);
 			const both = (o: { summary: any; detail: any }) => [o.summary, o.detail];
 			const a = fake.objects('alltrails');
+			const s = fake.objects('strava');
 			const mineAt = (o: any) => o.user.id === 7001;
 			const owned = [
 				...[...g.tracks, ...g.routes, ...g.waypoints, ...g.areas, ...g.photos, ...g.folders]
@@ -781,7 +1004,10 @@ describe('fake-source (small dataset)', () => {
 				...a.photos.filter(mineAt),
 				...a.lists.flatMap((l) => [l.list, ...l.items]),
 				// Of a platform trail only these may ever be kept.
-				...a.trails.map((t) => ({ id: t.id, name: t.name, slug: t.slug, location: t.location }))
+				...a.trails.map((t) => ({ id: t.id, name: t.name, slug: t.slug, location: t.location })),
+				...s.activities.flatMap((activity) => [activity.summary, activity.streams]),
+				...s.routes.filter((route: any) => route.athlete.id === '3001'),
+				...s.photos
 			];
 			const text = JSON.stringify(strip(owned));
 			// Decoded polylines too, since the encoded form hides the digits.
@@ -813,6 +1039,13 @@ describe('fake-source (small dataset)', () => {
 				await atAll(fake, 'maps?presentation_type=map', 'maps')
 			);
 			expect(a.lists.map((l) => l.list)).toEqual(await atAll(fake, 'lists', 'lists'));
+			const s = fake.objects('strava');
+			const xhr = { headers: { 'X-Requested-With': 'XMLHttpRequest' } };
+			const listed = [1, 2].map((page) =>
+				site(fake, 'strava', `/athlete/training_activities?page=${page}`, xhr)
+			);
+			const models = (await Promise.all(listed)).flatMap((res) => res.json().models);
+			expect(s.activities.map((activity) => activity.summary)).toEqual(models);
 		});
 
 		it('is deterministic across server instances (modulo the port)', async () => {
@@ -822,6 +1055,11 @@ describe('fake-source (small dataset)', () => {
 					JSON.stringify(f.objects(p)).replaceAll(`:${f.port}`, ':PORT');
 				expect(norm(other, 'gaiagps')).toBe(norm(fake, 'gaiagps'));
 				expect(norm(other, 'alltrails')).toBe(norm(fake, 'alltrails'));
+				expect(norm(other, 'strava')).toBe(norm(fake, 'strava'));
+				const route = fake.expected('strava').ids.routes[0]!;
+				expect(
+					other.nativeGpx('strava', 'route', route).equals(fake.nativeGpx('strava', 'route', route))
+				).toBe(true);
 				expect(
 					other
 						.nativeGpx('gaiagps', 'track', 'gt-3006')
@@ -1031,7 +1269,7 @@ describe('fake-source (large dataset)', () => {
 		await fake.close();
 	});
 
-	it('expected() describes a photo-heavy Gaia account and an empty AllTrails one', async () => {
+	it('expected() describes a photo-heavy Gaia account and empty AllTrails and Strava ones', async () => {
 		const expected = fake.expected('gaiagps');
 		expect(expected.counts).toEqual({
 			tracks: 2,
@@ -1059,6 +1297,8 @@ describe('fake-source (large dataset)', () => {
 			pageInfo: { totalItemCount: 0, hasNextPage: false }
 		});
 		expect((await site(fake, 'gaiagps', '/api/objects/folder/')).json()).toEqual([]);
+		expect(fake.expected('strava').counts).toEqual(fake.expected('alltrails').counts);
+		expect(fake.expected('strava').references).toEqual([]);
 	});
 
 	it('lists every photo in one unpaginated response', async () => {
@@ -1145,6 +1385,7 @@ function sentinelStrings(): string[] {
 	return [
 		SENTINELS.sessionCookie.gaiagps,
 		SENTINELS.sessionCookie.alltrails,
+		SENTINELS.sessionCookie.strava,
 		SENTINELS.csrfToken,
 		SENTINELS.email,
 		SENTINELS.otherUserName,

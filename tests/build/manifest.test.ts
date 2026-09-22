@@ -56,13 +56,16 @@ describe.each(BUILDS)('$browser build manifest', ({ browser, dir }) => {
 		expect(manifest.optional_host_permissions.length).toBeGreaterThan(0);
 		for (const pattern of manifest.optional_host_permissions) {
 			expect(pattern).toMatch(
-				/^https:\/\/[a-z0-9.-]+\.(gaiagps\.com|gaiagps\.xyz|alltrails\.com)\/\*$/
+				/^https:\/\/[a-z0-9.-]+\.(gaiagps\.com|gaiagps\.xyz|alltrails\.com|strava\.com)\/\*$|^https:\/\/dgtzuqphqg23d\.cloudfront\.net\/\*$/
 			);
 		}
 		expect(manifest.optional_host_permissions).toContain('https://www.gaiagps.com/*');
 		// Gaia's photo host, where the site's photo URLs redirect to.
 		expect(manifest.optional_host_permissions).toContain('https://photos.gaiagps.xyz/*');
 		expect(manifest.optional_host_permissions).toContain('https://www.alltrails.com/*');
+		expect(manifest.optional_host_permissions).toContain('https://www.strava.com/*');
+		// Strava's photo host: one CloudFront distribution, never cloudfront.net at large.
+		expect(manifest.optional_host_permissions).toContain('https://dgtzuqphqg23d.cloudfront.net/*');
 	});
 
 	it('declares no content scripts', () => {

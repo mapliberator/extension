@@ -15,7 +15,7 @@ import {
 	waitForArchive
 } from './fixtures.ts';
 
-for (const platform of ['gaiagps', 'alltrails'] as const) {
+for (const platform of ['gaiagps', 'alltrails', 'strava'] as const) {
 	test(`happy path: full ${platform} export through popup → export page → source tab → worker → OPFS → download`, async ({
 		context,
 		extensionId,
@@ -48,8 +48,8 @@ for (const platform of ['gaiagps', 'alltrails'] as const) {
 		// (c) manifest.json is the last ZIP entry
 		expect(archive.names.at(-1)).toBe('manifest.json');
 
-		// (d) Gaia: native GPX byte-identical to what fake-source served, sidecars say native-gpx.
-		// AllTrails has no GPX export, so everything there is rebuilt from its map data.
+		// (d) Gaia and Strava: native GPX byte-identical to what fake-source served, sidecars say
+		// native-gpx. AllTrails has no GPX export, so everything there is rebuilt from its map data.
 		for (const [kind, dir, ids] of [
 			['track', 'tracks', expected.ids.tracks],
 			['route', 'routes', expected.ids.routes]
@@ -77,7 +77,8 @@ for (const platform of ['gaiagps', 'alltrails'] as const) {
 		// Invariant: sentinels appear nowhere in the archive.
 		expect(findSentinels(archivePath, archive, allSentinels(platform))).toEqual({});
 
-		// …while saved platform trails DO appear as references with name, URL and one coordinate.
+		// …while saved platform content DOES appear as references: name, URL, one coordinate (or
+		// null where the platform lists none).
 		const members = archive
 			.json('collections.json')
 			.collections.flatMap((collection: { members: unknown[] }) => collection.members);

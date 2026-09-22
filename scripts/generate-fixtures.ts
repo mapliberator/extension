@@ -90,6 +90,38 @@ try {
 	write('alltrails', 'list-items', { listItems: alltrails.lists[0]!.items });
 	write('alltrails', 'trail', one('trails', alltrails.trails[0]));
 	write('alltrails', 'photos-listing', page('photos', alltrails.photos));
+
+	const strava = fixPort(fake.objects('strava'));
+	write('strava', 'current-athlete', {
+		currentAthlete: strava.me,
+		pageContext: { loggedOutExperiment: null, features: {} }
+	});
+	const models = strava.activities.map((a) => a.summary);
+	write('strava', 'activities-listing', {
+		models,
+		page: 1,
+		perPage: 20,
+		total: models.length
+	});
+	// The fallback request asks for these three streams only.
+	const { latlng, altitude, time } = strava.activities[0]!.streams;
+	write('strava', 'streams', { latlng, altitude, time });
+	write('strava', 'routes-listing', {
+		me: {
+			id: String(strava.me.id),
+			measurementPreference: 'meters',
+			searchRoutes: {
+				nodes: strava.routes,
+				pageInfo: {
+					endCursor: String(strava.routes.length - 1),
+					startCursor: '0',
+					hasNextPage: false,
+					hasPreviousPage: false
+				}
+			}
+		}
+	});
+	write('strava', 'photos-listing', { items: strava.photos, next_cursor: null, has_more: false });
 } finally {
 	await fake.close();
 }

@@ -17,8 +17,10 @@ export const trailCoordinatesP5: string[] = trailCoordinates.map((s) =>
 export const SENTINELS = {
 	sessionCookie: {
 		gaiagps: 'SENTINEL-SESSION-gaia-7f3a9c1e5b',
-		alltrails: 'SENTINEL-SESSION-at-2d8e4f6a1c'
+		alltrails: 'SENTINEL-SESSION-at-2d8e4f6a1c',
+		strava: 'SENTINEL-SESSION-strava-8b4f0d2e6a'
 	},
+	/** Also the stem of every CSRF token the Strava-shaped site mints. */
 	csrfToken: 'SENTINEL-CSRF-91b7c3d5e2f4',
 	/** The AllTrails-shaped site's app key: sent on every call and in photo URLs, never archived. */
 	appKey: 'fakeatkey0123456789abcdef0123456',

@@ -12,6 +12,8 @@ export type Reply =
 			listing?: boolean;
 	  }
 	| { kind: 'bytes'; status: number; contentType: string; body: Buffer }
+	/** 302 with an empty body. */
+	| { kind: 'redirect'; location: string }
 	| { kind: 'photo'; spec: PhotoSpec };
 
 export interface ApiRequest {

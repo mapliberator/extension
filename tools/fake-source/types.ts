@@ -1,6 +1,6 @@
 /** Public types of `tools/fake-source`. See API.md — that document is the contract. */
 
-export type Platform = 'gaiagps' | 'alltrails';
+export type Platform = 'gaiagps' | 'alltrails' | 'strava';
 
 export type Lane = 'api' | 'asset' | 'page';
 
@@ -61,8 +61,16 @@ export interface ExpectedArchive {
 		areas: string[];
 		photos: string[];
 	};
-	/** Saved platform trails that must show up as `reference` members. `coordinate` is [lon, lat]. */
-	references: { name: string; url: string; sourceId: string; coordinate: [number, number] }[];
+	/**
+	 * Saved platform content that must show up as `reference` members: trails, other people's
+	 * routes. `coordinate` is [lon, lat], or null where the listing gives none.
+	 */
+	references: {
+		name: string;
+		url: string;
+		sourceId: string;
+		coordinate: [number, number] | null;
+	}[];
 }
 
 export type DatasetOptions =
@@ -88,7 +96,7 @@ export interface SourceStats {
 export interface SessionCookie {
 	name: 'fs_session';
 	value: string;
-	domain: 'gaia.localhost' | 'alltrails.localhost';
+	domain: 'gaia.localhost' | 'alltrails.localhost' | 'strava.localhost';
 	path: '/';
 	httpOnly: true;
 	secure: false;
@@ -122,6 +130,16 @@ export interface AllTrailsObjects {
 	photos: Json[];
 }
 
+export interface StravaObjects {
+	me: Json;
+	/** Listing entry plus every stream the activity has. */
+	activities: { summary: Json; streams: Record<string, unknown[]> }[];
+	/** Route nodes as the routes query returns them, own and starred. */
+	routes: Json[];
+	/** Photo listing items, videos included. */
+	photos: Json[];
+}
+
 export interface FakeSource {
 	/** The port actually bound. */
 	readonly port: number;
@@ -142,6 +160,7 @@ export interface FakeSource {
 	/** Raw seeded objects (own and others'), for fixture dumps. */
 	objects(platform: 'gaiagps'): GaiaObjects;
 	objects(platform: 'alltrails'): AllTrailsObjects;
-	objects(platform: Platform): GaiaObjects | AllTrailsObjects;
+	objects(platform: 'strava'): StravaObjects;
+	objects(platform: Platform): GaiaObjects | AllTrailsObjects | StravaObjects;
 	close(): Promise<void>;
 }

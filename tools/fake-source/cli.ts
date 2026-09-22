@@ -50,7 +50,7 @@ const dataset: DatasetOptions =
 const fake = await startFakeSource({ port: int('port', values.port), dataset });
 
 console.log(`fake-source listening on port ${fake.port} (dataset: ${dataset.kind})\n`);
-for (const platform of ['gaiagps', 'alltrails'] as Platform[]) {
+for (const platform of ['gaiagps', 'alltrails', 'strava'] as Platform[]) {
 	const cookie = fake.sessionCookie(platform);
 	const counts = fake.expected(platform).counts;
 	console.log(`${platform}`);

@@ -1,0 +1,26 @@
+{
+	"currentAthlete": {
+		"id": 3001,
+		"id_str": "3001",
+		"external_identity_hash": "scrubbed",
+		"super_user": false,
+		"firstname": "Test",
+		"lastname": "Rider",
+		"gender": "Other",
+		"athlete_type": 0,
+		"is_subscriber": false,
+		"profile_medium": "https://avatars.invalid/medium.jpg",
+		"measurement_units": "meters",
+		"features": {},
+		"experiments": {},
+		"preferences": {},
+		"in_preview": false,
+		"num_days_remaining_in_preview": null,
+		"dob_required": false,
+		"age": 40
+	},
+	"pageContext": {
+		"loggedOutExperiment": null,
+		"features": {}
+	}
+}

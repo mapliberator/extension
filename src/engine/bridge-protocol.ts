@@ -12,11 +12,14 @@ export const BridgeCommandSchema = z.discriminatedUnion('type', [
 	z.object({
 		type: z.literal('request'),
 		id: z.number().int(),
-		method: z.literal('GET'),
+		/** POST only to the source's allowlisted paths (hosts.ts), which the executor enforces. */
+		method: z.enum(['GET', 'POST']),
 		url: z.string(),
 		accept: z.enum(['json', 'text-stream']),
 		/** Extra request headers an adapter's platform demands (e.g. an app key). */
-		headers: z.record(z.string(), z.string()).optional()
+		headers: z.record(z.string(), z.string()).optional(),
+		/** JSON request body, POST only. */
+		body: z.string().optional()
 	}),
 	z.object({ type: z.literal('ack'), id: z.number().int() }),
 	z.object({ type: z.literal('abort'), id: z.number().int() })

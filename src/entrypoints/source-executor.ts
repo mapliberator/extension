@@ -3,7 +3,8 @@
  *
  * Dumb by design (PRD §5.2): it checks that the URL is on the adapter's allowlisted origins,
  * performs the fetch with the page's own credentials, and returns the result. It holds no
- * cursors and no adapter logic, refuses non-GET methods, and never pushes.
+ * cursors and no adapter logic, and never pushes. It sends GET, and POST only to the exact
+ * paths the source allowlists in hosts.ts — read-only queries a platform serves no other way.
  */
 import { sourceHosts } from '../adapters/hosts';
 import {
@@ -34,6 +35,7 @@ export default defineUnlistedScript(() => {
 
 function serve(port: Browser.runtime.Port): void {
 	let origins: string[] | null = null;
+	let postPaths: string[] = [];
 	const controllers = new Map<number, AbortController>();
 	const acks = new Map<number, () => void>();
 
@@ -56,12 +58,13 @@ function serve(port: Browser.runtime.Port): void {
 		const command = parsed.data;
 		switch (command.type) {
 			case 'init': {
-				const allowed = sourceHosts(import.meta.env.MODE)[command.adapter].origins;
-				if (!allowed.includes(location.origin)) {
+				const hosts = sourceHosts(import.meta.env.MODE)[command.adapter];
+				if (!hosts.origins.includes(location.origin)) {
 					send({ type: 'refused', reason: `executor is not on a ${command.adapter} origin` });
 					return;
 				}
-				origins = allowed;
+				origins = hosts.origins;
+				postPaths = hosts.postPaths;
 				send({ type: 'ready', origin: location.origin });
 				return;
 			}
@@ -79,10 +82,11 @@ function serve(port: Browser.runtime.Port): void {
 
 	async function execute(command: {
 		id: number;
-		method: 'GET';
+		method: 'GET' | 'POST';
 		url: string;
 		accept: 'json' | 'text-stream';
 		headers?: Record<string, string>;
+		body?: string;
 	}): Promise<void> {
 		const { id } = command;
 		let url: URL;
@@ -94,12 +98,19 @@ function serve(port: Browser.runtime.Port): void {
 		if (!origins || !origins.includes(url.origin)) {
 			return send({ type: 'error', id, error: 'refused', message: 'origin is not allowlisted' });
 		}
+		const post = command.method === 'POST';
+		if (post && (url.search !== '' || !postPaths.includes(url.pathname))) {
+			return send({ type: 'error', id, error: 'refused', message: 'POST is not allowlisted' });
+		}
+		if (!post && command.body !== undefined) {
+			return send({ type: 'error', id, error: 'refused', message: 'GET with a body' });
+		}
 
 		const controller = new AbortController();
 		controllers.set(id, controller);
 		try {
 			const response = await fetch(url.href, {
-				method: 'GET',
+				method: command.method,
 				credentials: 'include',
 				redirect: 'follow',
 				// The parking page's address says nothing about the request and is nobody's business.
@@ -108,8 +119,10 @@ function serve(port: Browser.runtime.Port): void {
 				signal: controller.signal,
 				headers: {
 					...command.headers,
+					...(post ? { 'Content-Type': 'application/json' } : {}),
 					Accept: command.accept === 'json' ? 'application/json' : 'application/gpx+xml, */*'
-				}
+				},
+				...(post ? { body: command.body ?? '' } : {})
 			});
 			const headers: Record<string, string> = {};
 			for (const name of FORWARDED_HEADERS) {

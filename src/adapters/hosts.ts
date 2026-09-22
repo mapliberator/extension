@@ -1,21 +1,30 @@
 /**
  * Hosts each source adapter may touch. This is the single source of truth for the manifest's
- * optional host permissions, the bridge allowlist, and the worker's asset allowlist.
+ * optional host permissions, the bridge allowlist (origins and POST paths), and the worker's
+ * asset allowlist.
  *
  * Plain module on purpose: it is imported by `wxt.config.ts` (Node) as well as by extension code,
  * so it must not touch `import.meta.env` or any browser API.
  *
  * The `e2e` build mode swaps the real platforms for `tools/fake-source`, which serves
- * Gaia- and AllTrails-shaped APIs on `*.localhost`.
+ * Gaia-, AllTrails- and Strava-shaped APIs on `*.localhost`.
  */
-export type SourceId = 'gaiagps' | 'alltrails';
+export type SourceId = 'gaiagps' | 'alltrails' | 'strava';
 
 export interface SourceHosts {
 	/** API origins: the bridge executor refuses anything else. */
 	origins: string[];
 	/** Photo/CDN origins: fetched directly by the worker. */
 	assetOrigins: string[];
+	/**
+	 * Exact API paths the bridge executor may POST to. Everything else is GET-only: only a
+	 * read-only query the platform serves to nothing but a POST belongs here.
+	 */
+	postPaths: string[];
 }
+
+/** Strava lists routes only to a POST carrying a CSRF token that another POST mints. */
+const STRAVA_POST_PATHS = ['/api/next/mint-csrf-token', '/api/next/data/routes/my-routes'];
 
 export const FAKE_SOURCE_PORT = 4610;
 
@@ -24,13 +33,22 @@ const REAL: Record<SourceId, SourceHosts> = {
 		origins: ['https://www.gaiagps.com'],
 		// Photo URLs live on the site host, answer without a session and redirect to signed URLs
 		// on the photo host (docs/phase0-findings.md).
-		assetOrigins: ['https://www.gaiagps.com', 'https://photos.gaiagps.xyz']
+		assetOrigins: ['https://www.gaiagps.com', 'https://photos.gaiagps.xyz'],
+		postPaths: []
 	},
 	alltrails: {
 		origins: ['https://www.alltrails.com'],
 		// Photo URLs live on the site host, need the app key rather than a session, and redirect
 		// to the image host (docs/phase0-findings.md).
-		assetOrigins: ['https://www.alltrails.com', 'https://images.alltrails.com']
+		assetOrigins: ['https://www.alltrails.com', 'https://images.alltrails.com'],
+		postPaths: []
+	},
+	strava: {
+		origins: ['https://www.strava.com'],
+		// Photo URLs in the listing point straight at this CloudFront host: unsigned, no session,
+		// no CORS (docs/phase0-findings.md).
+		assetOrigins: ['https://dgtzuqphqg23d.cloudfront.net'],
+		postPaths: STRAVA_POST_PATHS
 	}
 };
 
@@ -47,14 +65,21 @@ const FAKE: Record<SourceId, SourceHosts> | null =
 					assetOrigins: [
 						`http://gaia.localhost:${FAKE_SOURCE_PORT}`,
 						`http://cdn.gaia.localhost:${FAKE_SOURCE_PORT}`
-					]
+					],
+					postPaths: []
 				},
 				alltrails: {
 					origins: [`http://alltrails.localhost:${FAKE_SOURCE_PORT}`],
 					assetOrigins: [
 						`http://alltrails.localhost:${FAKE_SOURCE_PORT}`,
 						`http://cdn.alltrails.localhost:${FAKE_SOURCE_PORT}`
-					]
+					],
+					postPaths: []
+				},
+				strava: {
+					origins: [`http://strava.localhost:${FAKE_SOURCE_PORT}`],
+					assetOrigins: [`http://cdn.strava.localhost:${FAKE_SOURCE_PORT}`],
+					postPaths: STRAVA_POST_PATHS
 				}
 			};
 

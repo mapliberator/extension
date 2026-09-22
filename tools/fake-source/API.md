@@ -1,9 +1,9 @@
 # fake-source API contract
 
-`tools/fake-source` is a synthetic server that impersonates a **Gaia-GPS-shaped** and an
-**AllTrails-shaped** platform for development, e2e tests and large-archive tests. Both platforms' shapes follow the
-recorded Phase 0 findings (`docs/phase0-findings.md`); what could not be observed is left out
-rather than invented. The adapters in `src/adapters/` are written
+`tools/fake-source` is a synthetic server that impersonates a **Gaia-GPS-shaped**, an
+**AllTrails-shaped** and a **Strava-shaped** platform for development, e2e tests and
+large-archive tests. Every platform's shapes follow the recorded Phase 0 findings
+(`docs/phase0-findings.md`); what could not be observed is left out rather than invented. The adapters in `src/adapters/` are written
 against this document; neither side imports the other.
 
 One Node HTTP server, one port (default **4610**), routed by `Host` header:
@@ -14,6 +14,8 @@ One Node HTTP server, one port (default **4610**), routed by `Host` header:
 | `cdn.gaia.localhost:4610`      | Gaia-shaped photo CDN       |
 | `alltrails.localhost:4610`     | AllTrails-shaped site + API |
 | `cdn.alltrails.localhost:4610` | AllTrails-shaped photo CDN  |
+| `strava.localhost:4610`        | Strava-shaped site + API    |
+| `cdn.strava.localhost:4610`    | Strava-shaped photo CDN     |
 
 Listen on `127.0.0.1` (and `::1` when available). No CORS headers anywhere — the extension must
 work through host permissions exactly as it would against the real sites.
@@ -43,7 +45,9 @@ await fake.close();
 `RequestLogEntry = { platform, lane: 'api' | 'asset' | 'page', method, path, status, start, end }`
 (`start`/`end` from `performance.now()`; `status` is `0` for a dropped connection).
 
-- **lane `api`** = every request under `/api/` on a site host (JSON and GPX).
+- **lane `api`** = every request under `/api/` on a site host (JSON and GPX). On the Strava host,
+  whose API is not under one prefix: `/api/…`, `/frontend/…`, `/athlete/training_activities`,
+  `/athletes/<id>/photos`, `/activities/<id>/streams|export_gpx` and `/routes/<id>/export_gpx`.
 - **lane `asset`** = every request on a CDN host. **lane `page`** = everything else.
 - `peakApiConcurrency` = max simultaneously in-flight `api` requests; `minApiGapMs` = smallest
   difference between consecutive `api` request **start** times (Infinity with < 2 requests).
@@ -68,8 +72,14 @@ interface ExpectedArchive {
 		areas: string[];
 		photos: string[];
 	};
-	/** Saved platform trails that must show up as `reference` members. */
-	references: { name: string; url: string; sourceId: string; coordinate: [number, number] }[];
+	/** Saved platform content (trails, other people's routes) that must show up as `reference`
+	 *  members. `coordinate` is null where the platform lists none. */
+	references: {
+		name: string;
+		url: string;
+		sourceId: string;
+		coordinate: [number, number] | null;
+	}[];
 }
 ```
 
@@ -94,7 +104,10 @@ the cookie value equals that platform's session value **and** the server-side se
 - Unauthenticated API request: **Gaia** → `403`, `text/html`, empty body — except
   `GET /api/v3/user/`, which answers `200 {"id":null,"display_name":"","is_authenticated":false}`,
   and the photo redirects below, which need no session at all. **AllTrails** → `302` to `/login`
-  (so `fetch` ends on a 200 HTML page with `response.redirected === true`).
+  (so `fetch` ends on a 200 HTML page with `response.redirected === true`). **Strava** answers
+  per endpoint, as the real site does (see below).
+- Signing in again (`login()`, `POST /login`, the control endpoint) after the session died starts
+  a **new session**: tokens a platform binds to the session (Strava's CSRF token) stop working.
 
 ## Sentinels
 
@@ -104,8 +117,10 @@ Exported as `SENTINELS`. None of these may ever appear in an archive (decompress
 export const SENTINELS = {
 	sessionCookie: {
 		gaiagps: 'SENTINEL-SESSION-gaia-7f3a9c1e5b',
-		alltrails: 'SENTINEL-SESSION-at-2d8e4f6a1c'
+		alltrails: 'SENTINEL-SESSION-at-2d8e4f6a1c',
+		strava: 'SENTINEL-SESSION-strava-8b4f0d2e6a'
 	},
+	/** Also the stem of every CSRF token the Strava-shaped site mints. */
 	csrfToken: 'SENTINEL-CSRF-91b7c3d5e2f4',
 	/** Signature on the short-lived photo URLs the Gaia-shaped site redirects to. */
 	photoSignature: 'SENTINEL-PHOTO-SIGNATURE-5c1d7e9a',
@@ -130,7 +145,9 @@ Plant them generously. Gaia: e-mail and a secret (`didomi_auth.digest` = the CSR
 **detail**; the other user's name/e-mail on their objects' details and their description in the
 `notes` of their listed objects and shared folders; the signature on photo redirects. AllTrails:
 e-mail + CSRF token in `/me`; other users in `user` blocks; trail description + geometry on every
-saved trail. A trail's **representative coordinate** (`trailhead` / `location`) is a _different_
+saved trail. Strava: the CSRF sentinel as the account's `external_identity_hash` and inside every
+minted token; the other athlete's name as the author, and platform-trail coordinates as the
+geometry, of their starred route's GPX. A trail's **representative coordinate** (`trailhead` / `location`) is a _different_
 point that is not in `trailCoordinates` and is allowed in archives.
 
 ## Gaia-shaped API (`gaia.localhost`)
@@ -238,19 +255,63 @@ trail and so unattached; 1 other user's), 3 lists: Favorites (2 trails, one with
 empty built-in list, and a custom list (2 trails). **Expected collections: 2** — lists without
 items are not exported. Expected `references` = the 3 distinct saved trails.
 
+## Strava-shaped API (`strava.localhost`)
+
+Follows `docs/phase0-findings.md`. Activity ids are numbers with an `id_str`; **route ids are
+19-digit strings** past 2^53. Times are `YYYY-MM-DDTHH:MM:SSZ`, except an activity's
+`start_time`, which is UTC written `+0000`. Distances in metres, durations in seconds.
+
+- `GET /frontend/athletes/current` → `{ currentAthlete: { id, id_str, external_identity_hash, firstname, lastname, … }, pageContext }`.
+  Signed out: `200` with `currentAthlete: null`.
+- `GET /athlete/training_activities?page=<n>&per_page=<n>` → `{ models, page, perPage, total }`,
+  newest first; `perPage` is the effective size, capped at 20 and at `maxPageSize`; a page past
+  the end is empty. Activity: `id, id_str, name, sport_type, private, start_time, distance_raw, moving_time_raw, elapsed_time_raw, elevation_gain_raw, has_latlng, trainer, description, visibility ('everyone' | 'only_me' | 'followers_only'), …`.
+- `GET /athletes/<own id>/photos?per_page=&cursor=` → `{ items, next_cursor: '<epoch>,<id>', has_more }`,
+  default page 10, capped like activities; an unknown cursor gives an empty page; another
+  athlete's id → `404`. Item: `photo_id (UUID), id, media_type, activity_id, activity_id_str, caption_escaped (HTML-escaped), thumbnail, large, video, lat: null, lng: null, owner_id, viewing_athlete_id, activity: {…}, dimensions, …`.
+  `large` is `http://cdn.strava.localhost:<port>/<token>-1536x2048.jpg`: no session, no signature,
+  lane `asset`.
+- **These two listings answer the HTML page (`200 text/html`) unless the request carries
+  `X-Requested-With: XMLHttpRequest`.** Signed out, an XHR request gets `401` with an empty
+  body; anything else `302 /login`.
+- `GET /activities/<id>/streams?stream_types[]=…` → only the named streams, as parallel arrays:
+  `latlng` (`[lat, lng]`), `altitude`, `time` (seconds from the start), `distance`, `moving`. An
+  activity without GPS has no `latlng`. JSON with or without the XHR header; `401` signed out.
+- `GET /activities/<id>/export_gpx`, `GET /routes/<id>/export_gpx` → `200 application/octet-stream`,
+  GPX 1.1 `creator="StravaGPX"`, one `trkseg` (routes without times). An activity without GPS →
+  `302 /dashboard` (a 200 HTML page). Signed out → `302 /login`. `fake.nativeGpx('strava', …)`
+  returns these bytes.
+- `POST /api/next/mint-csrf-token` → `{ token }`: `SENTINELS.csrfToken` plus a per-session
+  suffix. Signed out it still answers, with a token nothing accepts. `GET` → `405`.
+- `POST /api/next/data/routes/my-routes` with header `x-csrf-token: <token of this session>` and a
+  JSON body `{ pageSize, after, searchArgs: { …, routeTypes? }, resolutions }` →
+  `{ me: { id, measurementPreference, searchRoutes: { nodes, pageInfo: { endCursor, startCursor, hasNextPage, hasPreviousPage } } } }`.
+  Node: `title, id, isStarred, elevationGain, length, estimatedTime, creationTime, themedMapImages, routeType, athlete: { id }, isPrivate`.
+  `after` is `'0'` for the first page, then the previous `endCursor` (0-based index of that
+  page's last node); `pageSize` is clamped to `maxPageSize`; `routeTypes` filters when present.
+  No, wrong or stale token, or signed out → `403` with an empty body; no `searchArgs` → `500`;
+  `GET` → `405`. The schema-drift fault renames `me`.
+
+Small dataset (Strava): 5 activities (4 with GPS: visibilities everyone, followers-only and
+only-me; 1 indoor without GPS, which is not exported), 4 routes (3 own, one private; 1 other
+athlete's, starred), 4 photo items (3 photos: two on GPS activities, one on the indoor activity and
+so unattached; 1 video, not exported). **Expected collections: 1**, the synthesized "Starred
+routes". Expected `references` = the other athlete's route, with `coordinate: null`.
+
 ## Large dataset
 
 `dataset: 'large'` or `{ kind: 'large', photos: 1100, photoBytes: 5_000_000 }`: Gaia platform only,
 2 tracks, 2 waypoints (every photo hangs off one of them), 0 of everything else, `photos` photos
 of `photoBytes` each (≥ 5 GB total by default), generated on the fly without allocating per-photo
 buffers (reuse one pseudo-random block; vary a small per-photo header so files differ). The photo
-listing is one response, like every Gaia listing.
+listing is one response, like every Gaia listing. AllTrails and Strava are empty (but valid)
+accounts.
 
 ## Faults
 
 ```ts
 interface Fault {
-	platform?: 'gaiagps' | 'alltrails';
+	platform?: 'gaiagps' | 'alltrails' | 'strava';
 	/** RegExp source tested against `path + search`. */
 	match: string;
 	/** Let this many matching requests through first. Default 0. */

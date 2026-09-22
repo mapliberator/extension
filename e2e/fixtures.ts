@@ -13,7 +13,8 @@ const TMP_ROOT = resolve('.e2e-tmp');
 
 export const SOURCE_LABEL: Record<Platform, string> = {
 	gaiagps: 'Gaia GPS',
-	alltrails: 'AllTrails'
+	alltrails: 'AllTrails',
+	strava: 'Strava'
 };
 
 export interface ExtensionFixtures {
@@ -73,7 +74,11 @@ export const test = base.extend<
 		});
 		context.on('request', (request) => requests.push(request.url()));
 		await context.addInitScript(initScript);
-		await context.addCookies([fake.sessionCookie('gaiagps'), fake.sessionCookie('alltrails')]);
+		await context.addCookies([
+			fake.sessionCookie('gaiagps'),
+			fake.sessionCookie('alltrails'),
+			fake.sessionCookie('strava')
+		]);
 		await use(context);
 		await context.close();
 		rmSync(profile, { recursive: true, force: true });
@@ -149,7 +154,7 @@ export async function opfsExports(page: Page): Promise<string[]> {
 /** Invariant: the browser talked to fake-source hosts and nothing else. */
 export function assertOnlyFakeSourceHosts(requests: string[], fake: FakeSource): void {
 	const allowed = new Set(
-		(['gaiagps', 'alltrails'] as const).flatMap((platform) => [
+		(['gaiagps', 'alltrails', 'strava'] as const).flatMap((platform) => [
 			new URL(fake.origin(platform)).host,
 			new URL(fake.assetOrigin(platform)).host
 		])
@@ -185,7 +190,8 @@ export const LIMITS: Record<
 	{ apiConcurrency: number; assetConcurrency: number; floorMs: number }
 > = {
 	gaiagps: { apiConcurrency: 2, assetConcurrency: 4, floorMs: 150 },
-	alltrails: { apiConcurrency: 1, assetConcurrency: 2, floorMs: 250 }
+	alltrails: { apiConcurrency: 1, assetConcurrency: 2, floorMs: 250 },
+	strava: { apiConcurrency: 1, assetConcurrency: 3, floorMs: 500 }
 };
 
 /** Invariant: peak concurrency ≤ adapter limit, inter-request gap ≥ pacing floor (server-measured). */
