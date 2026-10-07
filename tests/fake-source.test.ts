@@ -35,7 +35,8 @@ const AT_KEY = 'fakeatkey0123456789abcdef0123456';
 const HOSTS: Record<Platform, string> = {
 	gaiagps: 'gaia.localhost',
 	alltrails: 'alltrails.localhost',
-	strava: 'strava.localhost'
+	strava: 'strava.localhost',
+	garmin: 'garmin.localhost'
 };
 
 /** node:http to 127.0.0.1 with an explicit Host header (fetch cannot set Host). */
@@ -144,6 +145,7 @@ describe('fake-source (small dataset)', () => {
 		fake.login('gaiagps');
 		fake.login('alltrails');
 		fake.login('strava');
+		fake.login('garmin');
 		fake.resetLog();
 	});
 
@@ -166,6 +168,9 @@ describe('fake-source (small dataset)', () => {
 		expect(fake.origin('strava')).toBe(`http://strava.localhost:${fake.port}`);
 		expect(fake.assetOrigin('strava')).toBe(`http://cdn.strava.localhost:${fake.port}`);
 		expect(fake.sessionCookie('strava').domain).toBe('strava.localhost');
+		expect(fake.origin('garmin')).toBe(`http://garmin.localhost:${fake.port}`);
+		expect(fake.sessionCookie('garmin').domain).toBe('garmin.localhost');
+		expect(fake.sessionCookie('garmin').value).toBe(SENTINELS.sessionCookie.garmin);
 	});
 
 	it('routes by Host and sends no CORS headers', async () => {
@@ -230,7 +235,7 @@ describe('fake-source (small dataset)', () => {
 		});
 
 		it('serves the home page and robots.txt', async () => {
-			for (const platform of ['gaiagps', 'alltrails', 'strava'] as Platform[]) {
+			for (const platform of ['gaiagps', 'alltrails', 'strava', 'garmin'] as Platform[]) {
 				const signedIn = await site(fake, platform, '/');
 				expect(signedIn.status).toBe(200);
 				expect(signedIn.text).toContain(SENTINELS.email);
@@ -949,6 +954,192 @@ describe('fake-source (small dataset)', () => {
 		});
 	});
 
+	describe('Garmin shape', () => {
+		/** The token the app page carries for the current session. */
+		const token = async (): Promise<string> => {
+			const page = await site(fake, 'garmin', '/app/');
+			return /<meta name="csrf-token" content="([^"]+)"\/>/.exec(page.text)![1]!;
+		};
+		const api = async (path: string, opts: HttpOptions = {}) =>
+			site(fake, 'garmin', `/gc-api${path}`, {
+				...opts,
+				headers: { 'connect-csrf-token': await token(), ...opts.headers }
+			});
+
+		it('every API call needs the session cookie and the token from an app page', async () => {
+			const page = await site(fake, 'garmin', '/app/');
+			expect(page.status).toBe(200);
+			expect(page.headers['content-type']).toMatch(/^text\/html/);
+			const csrf = await token();
+			expect(csrf).toContain(SENTINELS.csrfToken);
+			expect(await token()).toBe(csrf);
+
+			const path = '/gc-api/userprofile-service/socialProfile';
+			const none = await site(fake, 'garmin', path);
+			expect(none.status).toBe(403);
+			expect(none.headers['content-type']).toMatch(/^text\/plain/);
+			expect(none.body).toHaveLength(0);
+			const wrong = await site(fake, 'garmin', path, {
+				headers: { 'connect-csrf-token': 'nope' }
+			});
+			expect(wrong.status).toBe(403);
+			const ok = await site(fake, 'garmin', path, { headers: { 'connect-csrf-token': csrf } });
+			expect(ok.status).toBe(200);
+			expect(ok.json()).toMatchObject({ profileId: 5001, fullName: 'Test Walker' });
+			expect(ok.json().userName).toBe(SENTINELS.email);
+		});
+
+		it('signed out: 401 from the API, app pages bounce to /signin/; signing in again changes the token', async () => {
+			const old = await token();
+			const opts = { cookie: false } as const;
+			const anonymous = await site(fake, 'garmin', '/gc-api/userprofile-service/socialProfile', {
+				...opts,
+				headers: { 'connect-csrf-token': old }
+			});
+			expect(anonymous.status).toBe(401);
+			expect(anonymous.body).toHaveLength(0);
+			const page = await site(fake, 'garmin', '/app/', opts);
+			expect(page.status).toBe(302);
+			expect(page.headers.location).toBe('/signin/');
+			const signin = await site(fake, 'garmin', '/signin/', opts);
+			expect(signin.status).toBe(200);
+			expect(signin.text).toContain('<form');
+			expect(signin.text).not.toContain('csrf-token');
+
+			fake.logout('garmin');
+			fake.login('garmin');
+			const stale = await site(fake, 'garmin', '/gc-api/userprofile-service/socialProfile', {
+				headers: { 'connect-csrf-token': old }
+			});
+			expect(stale.status).toBe(403);
+			expect(await token()).not.toBe(old);
+		});
+
+		it('activities: a bare array paged with start= (0-based) and limit=, capped at the page size', async () => {
+			const expected = fake.expected('garmin');
+			const p1 = (
+				await api('/activitylist-service/activities/search/activities?start=0&limit=100')
+			).json();
+			expect(Array.isArray(p1)).toBe(true);
+			expect(p1).toHaveLength(3);
+			const p2 = (
+				await api('/activitylist-service/activities/search/activities?start=3&limit=100')
+			).json();
+			expect(p2).toHaveLength(2);
+			expect(
+				(await api('/activitylist-service/activities/search/activities?start=5&limit=100')).json()
+			).toEqual([]);
+			const all = [...p1, ...p2];
+			expect(all.filter((a) => a.hasPolyline).map((a) => String(a.activityId))).toEqual(
+				expected.ids.tracks
+			);
+			for (const a of all) {
+				expect(a.startTimeGMT).toMatch(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/);
+				expect(Date.parse(`${a.startTimeGMT.replace(' ', 'T')}Z`)).toBe(a.beginTimestamp);
+				expect(a.ownerId).toBe(5001);
+			}
+			expect(new Set(all.map((a) => a.privacy.typeKey))).toEqual(
+				new Set(['public', 'private', 'subscribers'])
+			);
+			const count = (await api('/activitylist-service/activities/count')).json();
+			expect(count.totalCount).toBe(all.length);
+		});
+
+		it('activity GPX: byte-identical to nativeGpx(); without GPS a file with no points', async () => {
+			const id = fake.expected('garmin').ids.tracks[0]!;
+			const gpx = await api(`/download-service/export/gpx/activity/${id}`);
+			expect(gpx.status).toBe(200);
+			expect(gpx.headers['content-type']).toBe('application/gpx+xml');
+			expect(gpx.body.equals(fake.nativeGpx('garmin', 'track', id))).toBe(true);
+			expect(gpx.text).toContain('creator="Garmin Connect"');
+			const indoor = await api('/download-service/export/gpx/activity/20400000004');
+			expect(indoor.status).toBe(200);
+			expect(indoor.text).not.toContain('<trkpt');
+			const noToken = await site(
+				fake,
+				'garmin',
+				`/gc-api/download-service/export/gpx/activity/${id}`
+			);
+			expect(noToken.status).toBe(403);
+		});
+
+		it('details: columns by metricsIndex, the GPX points plus rows without a fix', async () => {
+			const id = fake.expected('garmin').ids.tracks[0]!;
+			const details = (
+				await api(
+					`/activity-service/activity/${id}/details?maxChartSize=100000&maxPolylineSize=100000`
+				)
+			).json();
+			const column = Object.fromEntries(
+				details.metricDescriptors.map((d: any) => [d.key, d.metricsIndex])
+			);
+			const rows = details.activityDetailMetrics.map((r: any) => r.metrics);
+			const fixed = rows.filter((r: any) => r[column.directLatitude] !== null);
+			expect(fixed.length).toBeLessThan(rows.length);
+			const gpx = fake.nativeGpx('garmin', 'track', id).toString('utf8');
+			expect(gpx.split('<trkpt').length - 1).toBe(fixed.length);
+			expect(gpx).toContain(`lat="${fixed[0][column.directLatitude].toFixed(6)}"`);
+			expect(details.geoPolylineDTO.polyline.every((p: any) => p.altitude === null)).toBe(true);
+		});
+
+		it('courses: one unpaged listing, GPX with course points and no times, detail with geoPoints', async () => {
+			const expected = fake.expected('garmin');
+			const { coursesForUser } = (await api('/web-gateway/course/owner/')).json();
+			expect(coursesForUser.map((c: any) => String(c.courseId))).toEqual(expected.ids.routes);
+			const id = expected.ids.routes[0]!;
+			const gpx = await api(`/course-service/course/gpx/${id}`);
+			expect(gpx.headers['content-type']).toBe('application/gpx+xml');
+			expect(gpx.body.equals(fake.nativeGpx('garmin', 'route', id))).toBe(true);
+			expect(gpx.text).toContain('<wpt');
+			expect(gpx.text).toContain('<type>SUMMIT</type>');
+			expect(/<trkpt[^>]*>(?:(?!<\/trkpt>)[^])*<time>/.test(gpx.text)).toBe(false);
+			const detail = (await api(`/course-service/course/${id}`)).json();
+			expect(detail.geoPoints).toHaveLength(gpx.text.split('<trkpt').length - 1);
+			expect(detail.coursePoints).toHaveLength(2);
+		});
+
+		it('favourites: a bare array with own and other people’s courses; references start at the trailhead', async () => {
+			const expected = fake.expected('garmin');
+			const favorites = (await api('/course-service/course/favorites')).json();
+			expect(favorites.map((c: any) => c.userProfileId)).toEqual([5001, 5999]);
+			const theirs = favorites[1];
+			expect(theirs.displayName).toBe(SENTINELS.otherUserName);
+			expect(expected.references).toEqual([
+				{
+					name: theirs.courseName,
+					url: `${fake.origin('garmin')}/app/course/${theirs.courseId}`,
+					sourceId: String(theirs.courseId),
+					coordinate: [theirs.startLongitude, theirs.startLatitude]
+				}
+			]);
+			// The start is allowed in an archive; the geometry under it is the platform's.
+			for (const s of SENTINELS.trailCoordinates) {
+				expect(JSON.stringify(expected.references)).not.toContain(s);
+			}
+			expect(fake.nativeGpx('garmin', 'route', String(theirs.courseId)).toString()).toContain(
+				SENTINELS.trailCoordinates[0]
+			);
+		});
+
+		it('the app page counts as API traffic; robots.txt does not', async () => {
+			fake.resetLog();
+			await site(fake, 'garmin', '/robots.txt');
+			await api('/userprofile-service/socialProfile');
+			expect(fake.log().map((e) => [e.path, e.lane])).toEqual([
+				['/robots.txt', 'page'],
+				['/app/', 'api'],
+				['/gc-api/userprofile-service/socialProfile', 'api']
+			]);
+		});
+
+		it('expected(): GPS activities, own courses, one favourites collection, no photos', () => {
+			expect(fake.expected('garmin')).toMatchObject({
+				account: { id: '5001', displayName: 'Test W.' },
+				counts: { tracks: 4, routes: 3, waypoints: 0, areas: 0, collections: 1, photos: 0 }
+			});
+		});
+	});
+
 	describe('polyline + sentinels', () => {
 		it('encodes the canonical Google example', () => {
 			const pts: [number, number][] = [
@@ -995,6 +1186,7 @@ describe('fake-source (small dataset)', () => {
 			const both = (o: { summary: any; detail: any }) => [o.summary, o.detail];
 			const a = fake.objects('alltrails');
 			const s = fake.objects('strava');
+			const m = fake.objects('garmin');
 			const mineAt = (o: any) => o.user.id === 7001;
 			const owned = [
 				...[...g.tracks, ...g.routes, ...g.waypoints, ...g.areas, ...g.photos, ...g.folders]
@@ -1007,7 +1199,10 @@ describe('fake-source (small dataset)', () => {
 				...a.trails.map((t) => ({ id: t.id, name: t.name, slug: t.slug, location: t.location })),
 				...s.activities.flatMap((activity) => [activity.summary, activity.streams]),
 				...s.routes.filter((route: any) => route.athlete.id === '3001'),
-				...s.photos
+				...s.photos,
+				...m.activities.flatMap((activity) => [activity.summary, activity.details]),
+				...m.courses.flatMap(both),
+				...m.favorites.filter((course: any) => course.userProfileId === 5001)
 			];
 			const text = JSON.stringify(strip(owned));
 			// Decoded polylines too, since the encoded form hides the digits.
@@ -1386,6 +1581,7 @@ function sentinelStrings(): string[] {
 		SENTINELS.sessionCookie.gaiagps,
 		SENTINELS.sessionCookie.alltrails,
 		SENTINELS.sessionCookie.strava,
+		SENTINELS.sessionCookie.garmin,
 		SENTINELS.csrfToken,
 		SENTINELS.email,
 		SENTINELS.otherUserName,

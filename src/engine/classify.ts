@@ -33,7 +33,7 @@ function isChallengeJson(json: unknown): boolean {
 	return keys.length === 1 && typeof (json as { url?: unknown }).url === 'string';
 }
 
-function isLoginRedirect(response: BridgeResponse, context: ClassifyContext): boolean {
+export function isLoginRedirect(response: BridgeResponse, context: ClassifyContext): boolean {
 	return (
 		(response.redirected && context.isLoginUrl(response.url)) ||
 		context.isSignedOut?.(response) === true

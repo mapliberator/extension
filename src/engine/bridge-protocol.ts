@@ -15,7 +15,7 @@ export const BridgeCommandSchema = z.discriminatedUnion('type', [
 		/** POST only to the source's allowlisted paths (hosts.ts), which the executor enforces. */
 		method: z.enum(['GET', 'POST']),
 		url: z.string(),
-		accept: z.enum(['json', 'text-stream']),
+		accept: z.enum(['json', 'text', 'text-stream']),
 		/** Extra request headers an adapter's platform demands (e.g. an app key). */
 		headers: z.record(z.string(), z.string()).optional(),
 		/** JSON request body, POST only. */
@@ -42,12 +42,14 @@ const head = {
 export const BridgeEventSchema = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('ready'), origin: z.string() }),
 	z.object({ type: z.literal('refused'), reason: z.string() }),
-	/** Complete response: JSON requests, and streams that did not start (non-200 or HTML). */
+	/** Complete response: JSON and text requests, and streams that did not start (non-200 or HTML). */
 	z.object({
 		type: z.literal('response'),
 		...head,
 		bodyKind: BodyKindSchema,
-		json: z.unknown().optional()
+		json: z.unknown().optional(),
+		/** The body of a `text` request, cut at TEXT_LIMIT characters. */
+		text: z.string().optional()
 	}),
 	/** A text stream is starting; chunks follow, each acknowledged before the next is sent. */
 	z.object({ type: z.literal('head'), ...head }),
@@ -61,6 +63,9 @@ export const BridgeEventSchema = z.discriminatedUnion('type', [
 	})
 ]);
 export type BridgeEvent = z.infer<typeof BridgeEventSchema>;
+
+/** A `text` request is for a page's head, where a token sits: nothing past this crosses. */
+export const TEXT_LIMIT = 256 * 1024;
 
 /** Response headers the engine needs. Nothing else crosses the bridge — never Set-Cookie. */
 export const FORWARDED_HEADERS = ['content-type', 'retry-after', 'content-length'];

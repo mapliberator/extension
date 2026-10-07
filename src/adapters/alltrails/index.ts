@@ -68,7 +68,7 @@ export const createAllTrailsAdapter: AdapterFactory = (transport, mode) => {
 		if (!key) {
 			throw new AdapterOutdatedError(identity.label, identity.version, 'no API key configured');
 		}
-		return transport.getJson(url, { [AT_KEY_HEADER]: key });
+		return transport.getJson(url, { headers: { [AT_KEY_HEADER]: key } });
 	}
 
 	async function requireMe(): Promise<Me> {

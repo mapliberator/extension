@@ -319,6 +319,87 @@ test('faults: Strava session lost at the routes query re-mints its token after s
 	assertPatientPacing(fake, platform);
 });
 
+test('faults: Garmin keeps one CSRF token, reads it again when refused or after sign-in; a missing GPX export falls back to details', async ({
+	context,
+	extensionId,
+	fake,
+	requests,
+	downloadsDir
+}) => {
+	const platform = 'garmin' as const;
+	const expected = fake.expected(platform);
+	const [noExport, sessionLost] = expected.ids.tracks;
+	const [refusedCourse] = expected.ids.routes;
+	const page = await openExportPage(context, extensionId, platform);
+	await preflight(page, expected.account.displayName);
+	fake.setFaults([
+		{
+			platform,
+			match: `^/gc-api/download-service/export/gpx/activity/${noExport}$`,
+			action: { kind: 'status', status: 404 }
+		},
+		{
+			platform,
+			match: `^/gc-api/download-service/export/gpx/activity/${sessionLost}$`,
+			count: 1,
+			action: { kind: 'expire-session' }
+		},
+		// The platform turns down a token it handed out: a bare 403, as for a stale one.
+		{
+			platform,
+			match: `^/gc-api/course-service/course/gpx/${refusedCourse}$`,
+			count: 1,
+			action: { kind: 'status', status: 403, body: '' }
+		}
+	]);
+	fake.resetLog();
+	await page.getByTestId('start-export').click();
+
+	// The session is lost: the run waits for the user to sign in again.
+	const paused = page.getByTestId('paused');
+	await expect(paused).toHaveAttribute('data-reason', 'auth', { timeout: 60_000 });
+	fake.login(platform);
+	await page.getByTestId('resume').click();
+
+	const archivePath = await waitForArchive(page, downloadsDir);
+	const validation = await validateArchive(archivePath);
+	expect(validation.errors).toEqual([]);
+	const archive = await openArchive(archivePath);
+	const manifest = archive.json('manifest.json');
+	expect(manifest.status).toBe('complete');
+	expect(manifest.contents).toEqual(expected.counts);
+	expect(archive.json('errors.json')).toEqual([]);
+
+	// The token read while identifying the account (before the log was reset) carried the run
+	// until the session was lost. The page was read again only twice: after sign-in, and when
+	// the course export turned the token down. Everything else reused the token held.
+	const log = fake.log().filter((entry) => entry.platform === platform && entry.lane === 'api');
+	expect(log.filter((entry) => entry.path === '/app/')).toHaveLength(2);
+	expect(log.filter((entry) => entry.path.startsWith('/gc-api/')).length).toBeGreaterThan(10);
+	// The only refusals are the injected ones: a lost session's token was never sent again.
+	expect(log.filter((entry) => entry.status === 401 || entry.status === 403)).toHaveLength(2);
+	const courseExports = log.filter((entry) => entry.path.endsWith(`/gpx/${refusedCourse}`));
+	expect(courseExports.map((entry) => entry.status)).toEqual([403, 200]);
+
+	const sidecars = archive.names
+		.filter((name) => name.startsWith('tracks/') && name.endsWith('.json'))
+		.map((name) => archive.json(name));
+	for (const sidecar of sidecars) {
+		const fallback = sidecar.source.id === noExport;
+		expect(sidecar.geometrySource).toBe(fallback ? 'serialized' : 'native-gpx');
+		if (fallback) {
+			// Rebuilt from the details: every point the platform's own file has, with times.
+			const served = fake.nativeGpx(platform, 'track', noExport!).toString('utf8');
+			expect(sidecar.stats.pointCount).toBe(served.split('<trkpt').length - 1);
+			expect(archive.read(`tracks/${sidecar.file}`).toString('utf8')).toContain('<time>');
+		}
+	}
+
+	expect(findSentinels(archivePath, archive, allSentinels(platform))).toEqual({});
+	assertOnlyFakeSourceHosts(requests, fake);
+	assertPatientPacing(fake, platform);
+});
+
 test('faults: schema drift on a listing endpoint fails the run, naming adapter and version', async ({
 	context,
 	extensionId,

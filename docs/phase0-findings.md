@@ -370,6 +370,137 @@ still answers `200 { token }` with a token no session accepts.
 - rate limits on the GPX exports (3 MB each; the adapter paces at 500 ms, one at a time)
 - whether `large` is ever the original upload
 
+## Garmin Connect (`https://connect.garmin.com`)
+
+Probed 2026-10-07 from a signed-in session, same-origin `fetch`, same notation as above. The
+account holds 482 activities (6 without GPS, none with photos, no multisport) and 62 courses,
+plus 5 favourited courses by other users. Web app 5.30.0.34 (`/app/…`; `/modern/…` redirects
+there). Garmin's public APIs need a developer agreement and OAuth; everything below is the web
+app's own `/gc-api/…` proxy.
+
+**What a Garmin account holds.** Activities (recordings) are tracks and courses (planned) are
+routes. Course points (named, typed points along a course) are the only point objects, and they
+belong to a course. There are no free-standing waypoints, areas or folders. Favourited courses
+by other users are saved content. Segments, Garmin Trails and the popularity heatmap are
+platform content and are not exported.
+
+### Session and request shape
+
+- Cookie session, plus a **`connect-csrf-token` header on every `/gc-api/` request, GETs and GPX
+  exports included**. Without it, or with a wrong one: `403`, `text/plain`, empty body. `NK: NT`
+  (the old `/modern/proxy/` header) does nothing.
+- The token is the `<meta name="csrf-token">` of any app page (`/app/`, `/app/activities`,
+  `/modern/`): an 8 KB HTML document, `s36` (a UUID). It is **bound to the session and stable**:
+  every page fetch in a session returned the same value. There is no JSON endpoint for it.
+- `/robots.txt` is 370 B of text, a good parking page. The token page, the listings and the GPX
+  export all work from it with `credentials: 'include'` and `referrerPolicy: 'no-referrer'`.
+- The site sits behind Cloudflare (`/cdn-cgi/rum`). No rate limit was hit in about 150 requests
+  made without pacing. Limits are untested.
+
+### Account — `GET /gc-api/userprofile-service/socialProfile`
+
+`{ id:n, profileId:n, garminGUID, displayName:s36, fullName, userName, profileImageType, profileImageUrl{Large,Medium,Small}, hasPremiumSocialIcon, location, facebookUrl, twitterUrl, … }`.
+`displayName` is a UUID, not a name. `fullName` is the human name. `profileId` (not `id`) equals the
+activities' `ownerId` and the courses' `userProfileId`.
+
+### Activities — `GET /gc-api/activitylist-service/activities/search/activities?start=<n>&limit=<n>`
+
+A **bare JSON array**, newest first. `limit=1000` returned all 482, so the cap is at least that.
+The total is `GET …/activities/count` → `{ totalCount:n, multisportParentCount:n, multisportChildCount:n, nonMultisportCount:n }`.
+
+Activity (~90 keys): `activityId:n, activityUUID, activityName, startTimeLocal:dt<0000-00-00 00:00:00>, startTimeGMT:dt<0000-00-00 00:00:00>, endTimeGMT, beginTimestamp:n (epoch ms), activityType:{typeId, typeKey, parentTypeId, …}, eventType:{…}, distance:n, duration:n, elapsedDuration:n, movingDuration:n, elevationGain:n, elevationLoss:n, startLatitude, startLongitude, hasPolyline:b, hasImages:b, hasVideo:b, ownerId:n, ownerDisplayName, ownerFullName, ownerProfileImageUrl{Small,Medium,Large}, userRoles:[37x s], privacy:{typeId, typeKey}, isParent:b, isManualActivity:b, deviceId:n, …` plus heart-rate, training-effect and split fields.
+
+- **`startTimeGMT` has a space and no zone.** `new Date()` reads that as local time. Use
+  `beginTimestamp` (epoch ms), which matched `startTimeGMT` on the probed activity.
+- Second probe, values: `distance` is metres (37,970 for a ride the list shows as 37.97 km).
+  `duration`, `elapsedDuration` and `movingDuration` are seconds. `elapsedDuration` is
+  wall-clock time: it equals `endTimeGMT − beginTimestamp` on every activity checked. `duration`
+  is timer time and leaves out pauses (1,694 s against 9,914 s elapsed on one ride).
+- `start` is 0-based, and a `start` past the end answers `[]`.
+- `privacy.typeKey` was `public`, `private` or `subscribers` (followers).
+- `hasPolyline: false` on the 6 activities without GPS.
+- The listing has no description. Neither did the detail (`GET /gc-api/activity-service/activity/<id>` →
+  `activityId, activityUUID, activityName, userProfileId, isMultiSportParent, activityTypeDTO, eventTypeDTO, accessControlRuleDTO, timeZoneUnitDTO, metadataDTO, summaryDTO, locationName`)
+  on any of 40 sampled activities. Where a description lives, if one is set, is **unknown**.
+- PII: `ownerDisplayName`, `ownerFullName`, `ownerProfileImageUrl*`, `userRoles`.
+
+### Activity geometry
+
+- **Native GPX:** `GET /gc-api/download-service/export/gpx/activity/<id>` (with the CSRF header) →
+  `200 application/gpx+xml`, `Content-Disposition: attachment`, no `Content-Length`. GPX 1.1,
+  `creator="Garmin Connect"`:
+  `gpx > metadata > link > text, time; trk > name, type, trkseg (one) > trkpt > ele, time, extensions > ns3:TrackPointExtension > ns3:hr`.
+  1.1 MB for 3,251 points. No `desc`.
+- An activity **without GPS also answers `200`**, with a 656 B GPX that has no points (and a
+  `Content-Length`). `gpx-check` rejects that, so the adapter must skip `hasPolyline: false` up
+  front.
+- **JSON fallback:** `GET /gc-api/activity-service/activity/<id>/details?maxChartSize=100000&maxPolylineSize=100000`
+  → `{ activityId, measurementCount, metricsCount, totalMetricsCount, metricDescriptors:[{key, metricsIndex, …}], activityDetailMetrics:[Nx {metrics:[14x n]}], geoPolylineDTO:{ startPoint, endPoint, minLat, maxLat, minLon, maxLon, polyline:[Nx {lat, lon, altitude, time, …}] }, heartRateDTOs, pendingData, detailsAvailable }`.
+  N was 3,251 in both arrays, equal to the GPX. **`polyline[].altitude` is null on every point.**
+  Elevation is the `directElevation` column of `activityDetailMetrics`, alongside
+  `directLatitude`, `directLongitude` and `directTimestamp` (epoch ms). Look columns up by
+  `metricDescriptors[].key`, not by position. What `maxPolylineSize` does to longer activities
+  is untested.
+- Second probe: a descriptor is `{ metricsIndex:n, key, unit:{ id, key, factor } }`, and the
+  list order differs between activities, so each column is `metrics[metricsIndex]`. Units:
+  latitude and longitude `dd`, elevation `meter` with `factor: 100` but values already in metres
+  (they match the listing's `minElevation`/`maxElevation`), timestamp `gmt`, epoch ms, whose
+  first row equals `beginTimestamp`. Rows can lack a position (4 of 484 on one activity, before
+  the fix): latitude and longitude are null there, the other columns are not.
+- The activity's page is `/app/activity/<id>` (200).
+
+### Courses — `GET /gc-api/web-gateway/course/owner/`
+
+`{ coursesForUser:[62x Course] }`, all of them, no paging. Every one had the user's
+`userProfileId`.
+
+Course: `courseId:n, userProfileId:n, displayName:s36, activityType:{typeId, typeKey, …}, courseName, courseDescription:null|s, createdDate:n (epoch ms), updatedDate:n, privacyRule:{typeId, typeKey}, distanceInMeters:n, elevationGainInMeters:n, elevationLossInMeters:n, startLatitude, startLongitude, speedInMetersPerSecond, sourceTypeId:n, sourcePk, elapsedSeconds:null, coordinateSystem:s5, favorite:b, public:b, createdDateFormatted:dt<0000-00-00 00:00:00.0 GMT>, updatedDateFormatted, …`.
+
+- `privacyRule.typeKey` was `private` or `public`. `courseDescription` was null on all 62.
+  Names carry suffixes like "Imported from Strava".
+- **Favourites:** `GET /gc-api/course-service/course/favorites` → bare array of the same Course
+  shape. All 5 belonged to other users, so they become references in a synthesised collection,
+  like Strava's starred routes.
+
+### Course geometry
+
+- **Native GPX:** `GET /gc-api/course-service/course/gpx/<id>` → `200 application/gpx+xml`,
+  attachment. `gpx > metadata > name, link > text, time; wpt > ele, name, type; trk > name, trkseg > trkpt > ele`.
+  A **`trk`, not a `rte`**, with no times, and the course points as `wpt`.
+  (`/download-service/export/gpx/course/<id>` is `404`.)
+- **Detail (fallback):** `GET /gc-api/course-service/course/<id>` →
+  `{ courseId, courseName, description, …, firstName, lastName, displayName, userProfilePk, …, geoPoints:[Nx {latitude, longitude, elevation, distance, timestamp}], coursePoints:[{coursePointId, name, coursePointType, lat, lon, distance, elevation, derivedElevation, timestamp, createdDate:dt<0000-00-00T00:00:00.0>, modifiedDate, note, …}], courseLines:[…] }`.
+  `geoPoints` had 3,268 entries, the same as the GPX `trkpt` count. The detail's text field is
+  `description` (the listing's is `courseDescription`). PII: `firstName`,
+  `lastName`, `displayName`.
+
+### Photos
+
+Unverified: `hasImages` was false on all 482 activities. The endpoint, image host and signing
+are unknown.
+
+### Signed out (simulated with `credentials: 'omit'`)
+
+`/gc-api/…` → `401`, `text/plain`, empty body. App pages redirect to `connect.garmin.com/signin/`,
+which has no CSRF meta. A `403` here means a missing or stale token, **not** a lost session.
+
+### What the adapter needed from the engine
+
+Everything maps onto existing record kinds: activities to tracks, courses to routes, favourites
+to references. Both have native GPX and a JSON fallback. The CSRF token did not fit the
+transport, which only knew Strava's case (a POST that mints a token, for one POST). The engine
+now takes a token from a page's `<meta>` tag as well (a `text` request across the bridge), adds
+it to GETs and native GPX exports, and can hold one for the session, reading it again when it is
+refused (`src/engine/csrf.ts`, README "Requests to the platforms").
+
+### Still unknown for Garmin Connect
+
+- rate limits and Cloudflare challenges under a full export
+- photos (endpoint, host, signing); videos
+- where an activity description is stored; multisport parents and children
+- `maxPolylineSize` on long activities; the Garmin Trails "Saved" tab (did not load)
+- the full sign-in redirect chain for a real signed-out session (`/signin/` vs `sso.garmin.com`)
+
 ## Still unknown for Gaia
 
 - saved hikes / public-trail references inside folders; multi-ring or multi-polygon areas

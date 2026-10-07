@@ -122,6 +122,22 @@ try {
 		}
 	});
 	write('strava', 'photos-listing', { items: strava.photos, next_cursor: null, has_more: false });
+
+	const garmin = fixPort(fake.objects('garmin'));
+	write('garmin', 'social-profile', garmin.me);
+	// Listings are bare arrays (docs/phase0-findings.md); the courses come in an envelope.
+	const activities = garmin.activities.map((a) => a.summary);
+	write('garmin', 'activities-listing', activities);
+	write('garmin', 'activity-count', {
+		totalCount: activities.length,
+		multisportParentCount: 0,
+		multisportChildCount: 0,
+		nonMultisportCount: activities.length
+	});
+	write('garmin', 'activity-details', garmin.activities[0]!.details);
+	write('garmin', 'courses-listing', { coursesForUser: garmin.courses.map((c) => c.summary) });
+	write('garmin', 'course-detail', garmin.courses[0]!.detail);
+	write('garmin', 'favorites-listing', garmin.favorites);
 } finally {
 	await fake.close();
 }

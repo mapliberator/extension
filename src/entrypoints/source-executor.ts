@@ -11,11 +11,17 @@ import {
 	BRIDGE_PORT_NAME,
 	BridgeCommandSchema,
 	FORWARDED_HEADERS,
+	TEXT_LIMIT,
 	type BodyKind,
 	type BridgeEvent
 } from '../engine/bridge-protocol';
 
 const CHUNK_CHARS = 64 * 1024;
+const ACCEPT = {
+	json: 'application/json',
+	text: 'text/html, */*',
+	'text-stream': 'application/gpx+xml, */*'
+} as const;
 
 declare global {
 	// eslint-disable-next-line no-var
@@ -84,7 +90,7 @@ function serve(port: Browser.runtime.Port): void {
 		id: number;
 		method: 'GET' | 'POST';
 		url: string;
-		accept: 'json' | 'text-stream';
+		accept: 'json' | 'text' | 'text-stream';
 		headers?: Record<string, string>;
 		body?: string;
 	}): Promise<void> {
@@ -120,7 +126,7 @@ function serve(port: Browser.runtime.Port): void {
 				headers: {
 					...command.headers,
 					...(post ? { 'Content-Type': 'application/json' } : {}),
-					Accept: command.accept === 'json' ? 'application/json' : 'application/gpx+xml, */*'
+					Accept: ACCEPT[command.accept]
 				},
 				...(post ? { body: command.body ?? '' } : {})
 			});
@@ -157,7 +163,13 @@ function serve(port: Browser.runtime.Port): void {
 					bodyKind = /^\s*</.test(text) ? 'html' : 'text';
 				}
 			}
-			send({ type: 'response', ...head, bodyKind, ...(bodyKind === 'json' ? { json } : {}) });
+			send({
+				type: 'response',
+				...head,
+				bodyKind,
+				...(bodyKind === 'json' ? { json } : {}),
+				...(command.accept === 'text' ? { text: text.slice(0, TEXT_LIMIT) } : {})
+			});
 		} catch (error) {
 			send({
 				type: 'error',

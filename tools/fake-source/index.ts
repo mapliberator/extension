@@ -1,4 +1,4 @@
-/** Synthetic Gaia-/AllTrails-/Strava-shaped source server. The contract is API.md. */
+/** Synthetic Gaia-/AllTrails-/Strava-/Garmin-shaped source server. The contract is API.md. */
 export { startFakeSource } from './server.ts';
 export { SENTINELS, trailCoordinatesP5 } from './sentinels.ts';
 export { decodePolyline, encodePolyline } from './polyline.ts';
@@ -10,6 +10,7 @@ export type {
 	Fault,
 	FaultAction,
 	GaiaObjects,
+	GarminObjects,
 	Json,
 	Lane,
 	LineObject,

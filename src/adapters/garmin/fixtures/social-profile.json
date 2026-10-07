@@ -1,0 +1,18 @@
+{
+	"id": 88001,
+	"profileId": 5001,
+	"garminGUID": "b5a0c1e8-b6a0-c37b-b7a0-c50eb8a0c6a1",
+	"displayName": "e821c603-e721-c470-ea21-c929e921c796",
+	"fullName": "Test Walker",
+	"userName": "me@example.test",
+	"profileImageType": "UPLOADED_PHOTO",
+	"profileImageUrlLarge": "https://avatars.invalid/large.png",
+	"profileImageUrlMedium": "https://avatars.invalid/medium.png",
+	"profileImageUrlSmall": "https://avatars.invalid/small.png",
+	"hasPremiumSocialIcon": false,
+	"location": "Somewhere",
+	"facebookUrl": "",
+	"twitterUrl": "",
+	"personalWebsite": "",
+	"bio": null
+}

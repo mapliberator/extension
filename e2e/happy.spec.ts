@@ -3,6 +3,7 @@ import { validateArchive } from '../tools/pma-validate/validate.ts';
 import { readArchiveTree } from '../tools/pma-validate/reader.ts';
 import { findSentinels, openArchive } from './archive.ts';
 import {
+	API_PREFIX,
 	allSentinels,
 	assertOnlyFakeSourceHosts,
 	assertPatientPacing,
@@ -15,7 +16,7 @@ import {
 	waitForArchive
 } from './fixtures.ts';
 
-for (const platform of ['gaiagps', 'alltrails', 'strava'] as const) {
+for (const platform of ['gaiagps', 'alltrails', 'strava', 'garmin'] as const) {
 	test(`happy path: full ${platform} export through popup → export page → source tab → worker → OPFS → download`, async ({
 		context,
 		extensionId,
@@ -48,8 +49,8 @@ for (const platform of ['gaiagps', 'alltrails', 'strava'] as const) {
 		// (c) manifest.json is the last ZIP entry
 		expect(archive.names.at(-1)).toBe('manifest.json');
 
-		// (d) Gaia and Strava: native GPX byte-identical to what fake-source served, sidecars say
-		// native-gpx. AllTrails has no GPX export, so everything there is rebuilt from its map data.
+		// (d) Gaia, Strava and Garmin: native GPX byte-identical to what fake-source served, sidecars
+		// say native-gpx. AllTrails has no GPX export, so everything there is rebuilt from its map data.
 		for (const [kind, dir, ids] of [
 			['track', 'tracks', expected.ids.tracks],
 			['route', 'routes', expected.ids.routes]
@@ -98,7 +99,9 @@ for (const platform of ['gaiagps', 'alltrails', 'strava'] as const) {
 		// Invariant: network only to fake-source hosts. The recorder must have seen the source
 		// tab's API calls and the worker's photo fetches, or the check would prove nothing.
 		assertOnlyFakeSourceHosts(requests, fake);
-		expect(requests.some((url) => url.startsWith(`${fake.origin(platform)}/api/`))).toBe(true);
+		expect(
+			requests.some((url) => url.startsWith(`${fake.origin(platform)}${API_PREFIX[platform]}`))
+		).toBe(true);
 		expect(requests.filter((url) => url.startsWith(fake.assetOrigin(platform)))).toHaveLength(
 			expected.counts.photos
 		);

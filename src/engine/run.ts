@@ -26,7 +26,7 @@ import type {
 	UserInfo
 } from '../shared/models';
 import { PLURAL, type ErrorEntry, type Manifest, type ObjectType } from '../shared/schemas';
-import type { SourceBridge } from './bridge';
+import type { SourceRequester } from './csrf';
 import type { ClassifyContext } from './classify';
 import { fetchNativeGpx } from './transport';
 import { parseRetryAfter, type AttemptOutcome, type Lane } from './pacing';
@@ -39,7 +39,8 @@ export interface RunContext {
 	adapter: MapSourceAdapter;
 	user: UserInfo;
 	selection: ExportSelection;
-	bridge: SourceBridge;
+	/** Bridged requests, with the CSRF tokens they ask for. */
+	requester: SourceRequester;
 	worker: WorkerClient;
 	apiLane: Lane;
 	assetLane: Lane;
@@ -152,7 +153,7 @@ export async function runExport(context: RunContext): Promise<RunResult> {
 				const key = crypto.randomUUID();
 				try {
 					const result = await fetchNativeGpx({
-						bridge: context.bridge,
+						requester: context.requester,
 						lane: context.apiLane,
 						context: classifyContext,
 						request: record.nativeGpx,

@@ -56,7 +56,7 @@ describe.each(BUILDS)('$browser build manifest', ({ browser, dir }) => {
 		expect(manifest.optional_host_permissions.length).toBeGreaterThan(0);
 		for (const pattern of manifest.optional_host_permissions) {
 			expect(pattern).toMatch(
-				/^https:\/\/[a-z0-9.-]+\.(gaiagps\.com|gaiagps\.xyz|alltrails\.com|strava\.com)\/\*$|^https:\/\/dgtzuqphqg23d\.cloudfront\.net\/\*$/
+				/^https:\/\/[a-z0-9.-]+\.(gaiagps\.com|gaiagps\.xyz|alltrails\.com|strava\.com|garmin\.com)\/\*$|^https:\/\/dgtzuqphqg23d\.cloudfront\.net\/\*$/
 			);
 		}
 		expect(manifest.optional_host_permissions).toContain('https://www.gaiagps.com/*');
@@ -66,6 +66,11 @@ describe.each(BUILDS)('$browser build manifest', ({ browser, dir }) => {
 		expect(manifest.optional_host_permissions).toContain('https://www.strava.com/*');
 		// Strava's photo host: one CloudFront distribution, never cloudfront.net at large.
 		expect(manifest.optional_host_permissions).toContain('https://dgtzuqphqg23d.cloudfront.net/*');
+		// Garmin Connect: the web app only. No photo host, and never garmin.com at large.
+		expect(manifest.optional_host_permissions).toContain('https://connect.garmin.com/*');
+		expect(manifest.optional_host_permissions.filter((p: string) => p.includes('garmin'))).toEqual([
+			'https://connect.garmin.com/*'
+		]);
 	});
 
 	it('declares no content scripts', () => {

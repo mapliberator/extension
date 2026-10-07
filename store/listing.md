@@ -13,7 +13,7 @@ the dashboard.
 ```
 MapLiberator saves your whole outdoor mapping account to one ZIP file on your computer: every track, route, waypoint, area and photo, and the folders you keep them in.
 
-Works with Gaia GPS, AllTrails and Strava.
+Works with Gaia GPS, AllTrails, Strava and Garmin Connect.
 
 WHAT'S IN THE ARCHIVE
 • Tracks and routes as GPX, with their names, descriptions, dates and stats
@@ -29,7 +29,7 @@ MapLiberator runs in your browser, signed in as you. It talks only to the servic
 
 Free and open source under the MIT license: https://github.com/mapliberator/extension
 
-MapLiberator is not affiliated with Gaia GPS, AllTrails or Strava.
+MapLiberator is not affiliated with Gaia GPS, AllTrails, Strava or Garmin.
 ```
 
 **Category:** Productivity › Tools
@@ -55,7 +55,7 @@ MapLiberator is not affiliated with Gaia GPS, AllTrails or Strava.
 **Single purpose**
 
 ```
-MapLiberator exports a person's own data from an outdoor mapping service (Gaia GPS, AllTrails or Strava) into a single ZIP archive saved on their computer.
+MapLiberator exports a person's own data from an outdoor mapping service (Gaia GPS, AllTrails, Strava or Garmin Connect) into a single ZIP archive saved on their computer.
 ```
 
 **activeTab justification**
@@ -67,7 +67,7 @@ When the user clicks the toolbar button, the popup reads the URL of the current 
 **scripting justification**
 
 ```
-To read the user's data, MapLiberator opens a background tab on the mapping service's own site (for example www.gaiagps.com) and injects its bundled script there, so requests to the service's API use the session the user is already signed in with. The script refuses to run on any other site and only sends requests to that one origin. It only reads data: it never changes anything in the user's account, and it never reads cookies, passwords or tokens.
+To read the user's data, MapLiberator opens a background tab on the mapping service's own site (for example www.gaiagps.com) and injects its bundled script there, so requests to the service's API use the session the user is already signed in with. The script refuses to run on any other site and only sends requests to that one origin. It only reads data: it never changes anything in the user's account, and it never reads cookies or passwords. Some services require an anti-forgery (CSRF) token on their API requests; the extension reads that token from the service's own page or API, sends it back only to that service, and never stores it or writes it into the archive.
 ```
 
 **downloads justification**
@@ -85,7 +85,7 @@ In browsers that can't write a file directly, the archive is built in the extens
 **Host permission justification**
 
 ```
-Host access is optional and requested for one service at a time, only when the user starts an export from it: www.gaiagps.com and photos.gaiagps.xyz for Gaia GPS, www.alltrails.com and images.alltrails.com for AllTrails, www.strava.com and dgtzuqphqg23d.cloudfront.net for Strava. The first host of each pair serves the user's data and the second serves their photos. The extension makes no requests to any other host.
+Host access is optional and requested for one service at a time, only when the user starts an export from it: www.gaiagps.com and photos.gaiagps.xyz for Gaia GPS, www.alltrails.com and images.alltrails.com for AllTrails, www.strava.com and dgtzuqphqg23d.cloudfront.net for Strava, connect.garmin.com for Garmin Connect. Where there are two, the first host serves the user's data and the second serves their photos. The extension makes no requests to any other host.
 ```
 
 **Remote code:** No, I am not using remote code.
@@ -95,7 +95,7 @@ Host access is optional and requested for one service at a time, only when the u
 | Type                              | Tick | Why                                                                  |
 | --------------------------------- | ---- | -------------------------------------------------------------------- |
 | Personally identifiable info      | Yes  | The account's display name and ID are recorded in the archive        |
-| Health information                | Yes  | Strava's activity GPX files carry heart rate when it was recorded    |
+| Health information                | Yes  | Strava and Garmin activity GPX files carry heart rate when recorded  |
 | Financial and payment information | No   |                                                                      |
 | Authentication information        | No   | The browser attaches the session; the extension never reads it       |
 | Personal communications           | No   |                                                                      |

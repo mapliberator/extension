@@ -1,5 +1,4 @@
 /** Wires the bridge into pacing lanes: the AdapterTransport adapters see, plus native GPX. */
-import { ItemError } from '../shared/errors';
 import type { AdapterTransport, BridgeRequest } from '../shared/models';
 import type { BridgeResponse } from './bridge-types';
 import {
@@ -9,6 +8,7 @@ import {
 	type ClassifyContext,
 	type NativeGpxResult
 } from './classify';
+import type { SourceRequester } from './csrf';
 import type { Lane } from './pacing';
 import { GpxRejectedError } from './worker-client';
 
@@ -24,64 +24,40 @@ export interface BridgeRequester {
 }
 
 export function createAdapterTransport(
-	bridge: BridgeRequester,
+	requester: SourceRequester,
 	run: LaneRunner,
 	context: () => ClassifyContext
 ): AdapterTransport {
+	const json = (request: BridgeRequest): Promise<unknown> =>
+		run(async (paced) => {
+			try {
+				const sent = await requester.send(request, paced);
+				if (sent.type === 'outcome') return sent.outcome;
+				return classifyJsonResponse(sent.response, context());
+			} catch (error) {
+				return classifyTransportError(error);
+			}
+		});
+
 	return {
-		getJson(url: string, headers?: Record<string, string>): Promise<unknown> {
-			return run(async () => {
-				try {
-					const response = await bridge.request({
-						method: 'GET',
-						url,
-						accept: 'json',
-						...(headers ? { headers } : {})
-					});
-					return classifyJsonResponse(response, context());
-				} catch (error) {
-					return classifyTransportError(error);
-				}
+		getJson(url, { headers, csrf } = {}) {
+			return json({
+				method: 'GET',
+				url,
+				accept: 'json',
+				...(headers ? { headers } : {}),
+				...(csrf ? { csrf } : {})
 			});
 		},
 
-		postJson(url, body, options = {}): Promise<unknown> {
-			const { csrf } = options;
-			return run(async (paced) => {
-				try {
-					const headers = { ...options.headers };
-					if (csrf) {
-						// Minted inside the attempt: a retry after a re-login gets a token for the new
-						// session, and the token dies with the attempt.
-						const minted = classifyJsonResponse(
-							await bridge.request({ method: 'POST', url: csrf.url, accept: 'json' }),
-							context()
-						);
-						if (minted.type !== 'ok') return minted;
-						const token =
-							typeof minted.value === 'object' && minted.value !== null
-								? (minted.value as Record<string, unknown>)[csrf.field]
-								: undefined;
-						if (typeof token !== 'string' || token === '') {
-							return {
-								type: 'fail',
-								error: new ItemError('csrf', 'no CSRF token in the response')
-							};
-						}
-						headers[csrf.header] = token;
-						await paced();
-					}
-					const response = await bridge.request({
-						method: 'POST',
-						url,
-						accept: 'json',
-						headers,
-						body: JSON.stringify(body)
-					});
-					return classifyJsonResponse(response, context());
-				} catch (error) {
-					return classifyTransportError(error);
-				}
+		postJson(url, body, { headers, csrf } = {}) {
+			return json({
+				method: 'POST',
+				url,
+				accept: 'json',
+				headers: { ...headers },
+				body: JSON.stringify(body),
+				...(csrf ? { csrf } : {})
 			});
 		}
 	};
@@ -92,7 +68,7 @@ export function createAdapterTransport(
  * engine should fall back to the JSON API for this object.
  */
 export function fetchNativeGpx(args: {
-	bridge: BridgeRequester;
+	requester: SourceRequester;
 	lane: Lane;
 	context: ClassifyContext;
 	request: BridgeRequest;
@@ -100,12 +76,13 @@ export function fetchNativeGpx(args: {
 	begin(): Promise<void>;
 	onChunk(chunk: string): Promise<void>;
 }): Promise<NativeGpxResult> {
-	const { bridge, lane, context, request } = args;
-	return lane.run<NativeGpxResult>(async () => {
+	const { requester, lane, context, request } = args;
+	return lane.run<NativeGpxResult>(async (paced) => {
 		try {
 			await args.begin();
-			const response = await bridge.request(request, args.onChunk);
-			return classifyGpxResponse(response, context);
+			const sent = await requester.send(request, paced, args.onChunk);
+			if (sent.type === 'outcome') return sent.outcome;
+			return classifyGpxResponse(sent.response, context);
 		} catch (error) {
 			if (error instanceof GpxRejectedError) {
 				return { type: 'ok', value: { native: false, reason: error.message } };

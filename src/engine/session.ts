@@ -19,6 +19,8 @@ import { runExport } from './run';
 import { RunController, type RunSnapshot } from './state';
 import { timingsForMode } from './timings';
 import { createAdapterTransport } from './transport';
+import { createSourceRequester, type SourceRequester } from './csrf';
+import type { ClassifyContext } from './classify';
 import { WorkerClient } from './worker-client';
 
 export const EXPORT_LOCK = 'mapliberator-export';
@@ -74,6 +76,7 @@ export class ExportSession {
 	private descriptor: SourceDescriptor | null = null;
 	private adapter: MapSourceAdapter | null = null;
 	private bridge: SourceBridge | null = null;
+	private requester: SourceRequester | null = null;
 	private worker: WorkerClient | null = null;
 	private apiLane: Lane | null = null;
 	private runId: string | null = null;
@@ -211,13 +214,15 @@ export class ExportSession {
 			(sourceTabNote) => this.patch({ sourceTabNote })
 		);
 		let lane: Lane | null = null;
+		const classifyContext = (): ClassifyContext => ({
+			isLoginUrl: (url) => adapter!.isLoginUrl(url),
+			isSignedOut: (response) => adapter!.isSignedOut?.(response) === true
+		});
+		const requester = createSourceRequester(bridge, classifyContext);
 		const transport = createAdapterTransport(
-			bridge,
+			requester,
 			(attempt) => lane!.run(attempt),
-			() => ({
-				isLoginUrl: (url) => adapter!.isLoginUrl(url),
-				isSignedOut: (response) => adapter!.isSignedOut?.(response) === true
-			})
+			classifyContext
 		);
 		adapter = descriptor.create(transport, this.mode);
 		const apiLane = new Lane(
@@ -229,6 +234,7 @@ export class ExportSession {
 		lane = apiLane;
 		this.adapter = adapter;
 		this.bridge = bridge;
+		this.requester = requester;
 		this.apiLane = apiLane;
 		this.patch({
 			source: { id: adapter.id, label: adapter.label, notes: adapter.notes }
@@ -266,9 +272,10 @@ export class ExportSession {
 
 	/** Must be called from a click: the save-file picker needs the user gesture. */
 	async startExport(selection: ExportSelection): Promise<void> {
-		const { adapter, bridge, apiLane } = this;
+		const { adapter, bridge, requester, apiLane } = this;
 		const user = this.view.user;
-		if (!adapter || !bridge || !apiLane || !user || this.view.phase !== 'ready') return;
+		if (!adapter || !bridge || !requester || !apiLane || !user || this.view.phase !== 'ready')
+			return;
 
 		const filename = defaultArchiveFilename(adapter.id, new Date());
 		const runId = crypto.randomUUID();
@@ -311,7 +318,7 @@ export class ExportSession {
 				adapter,
 				user,
 				selection,
-				bridge,
+				requester,
 				worker,
 				apiLane,
 				assetLane: new Lane(

@@ -59,10 +59,11 @@ export const createStravaAdapter: AdapterFactory = (transport, mode) => {
 		activity: (id) => `${origin}/activities/${id}`,
 		route: (id) => `${origin}/routes/${id}`
 	};
+	// Minting is one cheap POST, and only the routes query needs a token: one per attempt.
 	const csrf: CsrfSource = {
-		url: `${origin}/api/next/mint-csrf-token`,
-		field: 'token',
-		header: 'x-csrf-token'
+		mint: { method: 'POST', url: `${origin}/api/next/mint-csrf-token`, field: 'token' },
+		header: 'x-csrf-token',
+		lifetime: 'attempt'
 	};
 
 	let me: StravaAthlete | null = null;
@@ -70,7 +71,7 @@ export const createStravaAdapter: AdapterFactory = (transport, mode) => {
 	const starred = new Map<string, ReferenceRecord>();
 	let routesListed = false;
 
-	const get = (url: string) => transport.getJson(url, XHR);
+	const get = (url: string) => transport.getJson(url, { headers: XHR });
 
 	async function requireMe(): Promise<StravaAthlete> {
 		me ??= parseListing(

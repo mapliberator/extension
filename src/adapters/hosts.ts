@@ -7,9 +7,9 @@
  * so it must not touch `import.meta.env` or any browser API.
  *
  * The `e2e` build mode swaps the real platforms for `tools/fake-source`, which serves
- * Gaia-, AllTrails- and Strava-shaped APIs on `*.localhost`.
+ * Gaia-, AllTrails-, Strava- and Garmin-shaped APIs on `*.localhost`.
  */
-export type SourceId = 'gaiagps' | 'alltrails' | 'strava';
+export type SourceId = 'gaiagps' | 'alltrails' | 'strava' | 'garmin';
 
 export interface SourceHosts {
 	/** API origins: the bridge executor refuses anything else. */
@@ -49,6 +49,12 @@ const REAL: Record<SourceId, SourceHosts> = {
 		// no CORS (docs/phase0-findings.md).
 		assetOrigins: ['https://dgtzuqphqg23d.cloudfront.net'],
 		postPaths: STRAVA_POST_PATHS
+	},
+	garmin: {
+		origins: ['https://connect.garmin.com'],
+		// Activity photos are not exported yet (docs/phase0-findings.md), so no photo host.
+		assetOrigins: [],
+		postPaths: []
 	}
 };
 
@@ -80,6 +86,11 @@ const FAKE: Record<SourceId, SourceHosts> | null =
 					origins: [`http://strava.localhost:${FAKE_SOURCE_PORT}`],
 					assetOrigins: [`http://cdn.strava.localhost:${FAKE_SOURCE_PORT}`],
 					postPaths: STRAVA_POST_PATHS
+				},
+				garmin: {
+					origins: [`http://garmin.localhost:${FAKE_SOURCE_PORT}`],
+					assetOrigins: [],
+					postPaths: []
 				}
 			};
 

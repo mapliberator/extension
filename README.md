@@ -33,16 +33,18 @@ under 512 MB.
 src/
   entrypoints/   background (opens the export page, nothing else) · popup · export page
                  source-executor (injected into the source tab) · exporter-worker
-  engine/        run orchestration · pacing/retry/pause · source-tab bridge · state machine
-  adapters/      gaia/ · alltrails/ · strava/ — schemas, mappers, fixtures; hosts.ts is the host
-                 and POST-path allowlist
+  engine/        run orchestration · pacing/retry/pause · source-tab bridge · CSRF tokens ·
+                 state machine
+  adapters/      gaia/ · alltrails/ · strava/ · garmin/ — schemas, mappers, fixtures; hosts.ts is
+                 the host and POST-path allowlist
   archive/       zip · gpx · gpx-check · geojson · sidecar · collections · manifest · filenames · scrub
   sinks/         OpfsSink (universal) · DirectFileSink (File System Access fast path) · select
   shared/        normalized models · archive zod schemas · error taxonomy
 spec/            Portable Map Archive 1.0-draft + JSON Schemas generated from the zod schemas
 tools/
   pma-validate/  validator CLI + reference reader — imports nothing from src/
-  fake-source/   synthetic Gaia-/AllTrails-/Strava-shaped server with fault injection (see API.md)
+  fake-source/   synthetic Gaia-/AllTrails-/Strava-/Garmin-shaped server with fault injection
+                 (see API.md)
 tests/           Vitest: unit suites, spec independence, schema drift guard, build assertions
 e2e/             Playwright specs
 ```
@@ -62,8 +64,17 @@ spec change.
 
 The source tab sends GET requests, plus POST to the exact paths a source allowlists in
 `src/adapters/hosts.ts` (`postPaths`). Only Strava has any: it lists routes only through a POST
-carrying a CSRF token that another POST mints. The transport mints that token again for each
-attempt, so it never outlives one request, and adapters never see it.
+carrying a CSRF token that another POST mints.
+
+Some platforms want a CSRF token. An adapter only says where it comes from (`CsrfSource`: a POST
+that answers JSON, or a `<meta>` tag on a page) and how long it lasts; the engine
+(`src/engine/csrf.ts`) mints it, adds it as a header, and never hands it to the adapter.
+
+- `lifetime: 'attempt'` (Strava): minted inside each attempt and forgotten after it.
+- `lifetime: 'session'` (Garmin Connect, which wants it on every API call and GPX export): read
+  once and reused. A `401`, a `403` or a sign-in redirect drops it. A held token that gets a
+  `403` is read again once, inside the same attempt, so a token never outlives the session it
+  belongs to.
 
 ## The e2e build
 
@@ -83,14 +94,16 @@ automated; `verify:large` stubs it with a real `FileSystemFileHandle` to drive t
 
 ## Not covered by `verify` — still to be done by hand
 
-- **Phase 0 platform probes.** All three platforms have been probed (`docs/phase0-findings.md`)
+- **Phase 0 platform probes.** All four platforms have been probed (`docs/phase0-findings.md`)
   and the adapters, fixtures, fake server and hosts follow the recorded shapes. Still open — Gaia:
   shared folders, waypoint elevation (only on the per-waypoint detail). AllTrails: **the
   `X-AT-KEY` app key is not configured** (`src/adapters/alltrails/key.ts`; the adapter refuses to
   run without it — ship it or read it from the site at run time is an open decision), completed
   trails and reviews, list items other than saved trails, and what a signed-out browser gets.
   Strava: other athletes' starred routes in the routes query, followers-only activities, videos
-  in the photo listing, and rate limits on the GPX exports are unobserved.
+  in the photo listing, and rate limits on the GPX exports are unobserved. Garmin Connect:
+  activity photos (none in the probed account, so not exported), rate limits under a full export,
+  where an activity description lives, and multisport activities.
 - **Firefox end to end.** Only the build, `web-ext lint` and the manifest assertions are
   automated. The export flow in Firefox — `persist()` and quota, the OPFS → `downloads` hand-off,
   the optional-permission prompt — stays on the manual checklist (PRD §24).

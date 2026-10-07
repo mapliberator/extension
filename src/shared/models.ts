@@ -11,14 +11,20 @@ export interface BridgeRequest {
 	/** POST only to a path the source allowlists in hosts.ts; the executor refuses the rest. */
 	method: 'GET' | 'POST';
 	url: string;
-	accept: 'json' | 'text-stream';
+	/** `text`: the whole body as a string, for the page a CSRF token is read from. */
+	accept: 'json' | 'text' | 'text-stream';
 	/**
-	 * Extra request headers the platform demands. Never session material, except the CSRF token
-	 * the transport mints for one attempt of a POST (`AdapterTransport.postJson`).
+	 * Extra request headers the platform demands. Never session material: a CSRF token is asked
+	 * for with `csrf`, and the engine adds it.
 	 */
 	headers?: Record<string, string>;
 	/** JSON request body, POST only. */
 	body?: string;
+	/**
+	 * The platform wants a CSRF token on this request. The engine mints it, adds it as a header,
+	 * and never shows it to the adapter. It does not cross the bridge as a field.
+	 */
+	csrf?: CsrfSource;
 }
 
 export interface UserInfo {
@@ -137,30 +143,42 @@ export interface AdapterLimits {
 	minIntervalMs: number;
 }
 
-/** Where a platform hands out the CSRF token its POST endpoints demand. */
+/** Where a platform hands out the CSRF token its API demands, and how long one is good for. */
 export interface CsrfSource {
-	/** An allowlisted POST path that answers `{ [field]: token }`. */
-	url: string;
-	field: string;
+	/**
+	 * POST: an allowlisted path that answers `{ [field]: token }`.
+	 * GET: a page of the site whose `<meta name="…" content="…">` carries the token.
+	 */
+	mint:
+		{ method: 'POST'; url: string; field: string } | { method: 'GET'; url: string; meta: string };
 	/** Request header the token travels in. */
 	header: string;
+	/**
+	 * `attempt`: minted afresh for every attempt and forgotten after it.
+	 * `session`: minted once and reused until the platform refuses it or the session is lost —
+	 * for platforms that want the token on every request, where minting each time would double
+	 * the traffic.
+	 */
+	lifetime: 'attempt' | 'session';
+}
+
+export interface RequestOptions {
+	headers?: Record<string, string>;
+	csrf?: CsrfSource;
 }
 
 /** What adapters use to reach the platform. Pacing, retries and pauses live behind it. */
 export interface AdapterTransport {
-	/** GET a JSON document from one of the adapter's API origins. */
-	getJson(url: string, headers?: Record<string, string>): Promise<unknown>;
+	/**
+	 * GET a JSON document from one of the adapter's API origins. With `csrf`, the engine adds a
+	 * token it minted (see `CsrfSource`); the adapter never sees it.
+	 */
+	getJson(url: string, options?: RequestOptions): Promise<unknown>;
 	/**
 	 * POST a JSON body to a path the source allowlists (hosts.ts) and read JSON back — for a
-	 * read-only query a platform serves to nothing but a POST. With `csrf`, a token is minted
-	 * afresh for every attempt, so it outlives no request, survives a re-login, and never
-	 * reaches the adapter.
+	 * read-only query a platform serves to nothing but a POST. `csrf` as for `getJson`.
 	 */
-	postJson(
-		url: string,
-		body: unknown,
-		options?: { headers?: Record<string, string>; csrf?: CsrfSource }
-	): Promise<unknown>;
+	postJson(url: string, body: unknown, options?: RequestOptions): Promise<unknown>;
 }
 
 export interface MapSourceAdapter {

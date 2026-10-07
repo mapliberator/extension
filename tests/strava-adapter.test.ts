@@ -246,7 +246,11 @@ describe('Strava adapter (fixture-backed transport)', () => {
 		expect(posted[0]).toEqual({
 			url: `${ORIGIN}/api/next/data/routes/my-routes`,
 			headers: { 'X-Requested-With': 'XMLHttpRequest' },
-			csrf: { url: `${ORIGIN}/api/next/mint-csrf-token`, field: 'token', header: 'x-csrf-token' },
+			csrf: {
+				mint: { method: 'POST', url: `${ORIGIN}/api/next/mint-csrf-token`, field: 'token' },
+				header: 'x-csrf-token',
+				lifetime: 'attempt'
+			},
 			body: {
 				pageSize: 50,
 				after: '0',

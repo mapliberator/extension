@@ -14,6 +14,8 @@ export interface GpxWaypoint {
 	lon: number;
 	name: string;
 	desc?: string;
+	ele?: number;
+	type?: string;
 }
 
 export interface GpxOptions {
@@ -64,8 +66,10 @@ export function buildGpx(o: GpxOptions): Buffer {
 	L.push('\t</metadata>');
 	for (const w of o.waypoints ?? []) {
 		L.push(`\t<wpt ${coord(w)}>`);
+		if (w.ele !== undefined) L.push(`\t\t<ele>${w.ele.toFixed(1)}</ele>`);
 		L.push(`\t\t<name>${xmlEscape(w.name)}</name>`);
 		if (w.desc) L.push(`\t\t<desc>${xmlEscape(w.desc)}</desc>`);
+		if (w.type) L.push(`\t\t<type>${xmlEscape(w.type)}</type>`);
 		L.push('\t</wpt>');
 	}
 	L.push(`\t<${o.kind}>`);

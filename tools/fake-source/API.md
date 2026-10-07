@@ -1,7 +1,7 @@
 # fake-source API contract
 
 `tools/fake-source` is a synthetic server that impersonates a **Gaia-GPS-shaped**, an
-**AllTrails-shaped** and a **Strava-shaped** platform for development, e2e tests and
+**AllTrails-shaped**, a **Strava-shaped** and a **Garmin-Connect-shaped** platform for development, e2e tests and
 large-archive tests. Every platform's shapes follow the recorded Phase 0 findings
 (`docs/phase0-findings.md`); what could not be observed is left out rather than invented. The adapters in `src/adapters/` are written
 against this document; neither side imports the other.
@@ -16,6 +16,8 @@ One Node HTTP server, one port (default **4610**), routed by `Host` header:
 | `cdn.alltrails.localhost:4610` | AllTrails-shaped photo CDN  |
 | `strava.localhost:4610`        | Strava-shaped site + API    |
 | `cdn.strava.localhost:4610`    | Strava-shaped photo CDN     |
+| `garmin.localhost:4610`        | Garmin-shaped site + API    |
+| `cdn.garmin.localhost:4610`    | Unused: no Garmin photos    |
 
 Listen on `127.0.0.1` (and `::1` when available). No CORS headers anywhere — the extension must
 work through host permissions exactly as it would against the real sites.
@@ -48,6 +50,8 @@ await fake.close();
 - **lane `api`** = every request under `/api/` on a site host (JSON and GPX). On the Strava host,
   whose API is not under one prefix: `/api/…`, `/frontend/…`, `/athlete/training_activities`,
   `/athletes/<id>/photos`, `/activities/<id>/streams|export_gpx` and `/routes/<id>/export_gpx`.
+  On the Garmin host: everything under `/gc-api/`, plus `GET /app/`, the page the CSRF token is
+  read from, which the extension paces like an API call.
 - **lane `asset`** = every request on a CDN host. **lane `page`** = everything else.
 - `peakApiConcurrency` = max simultaneously in-flight `api` requests; `minApiGapMs` = smallest
   difference between consecutive `api` request **start** times (Infinity with < 2 requests).
@@ -105,9 +109,10 @@ the cookie value equals that platform's session value **and** the server-side se
   `GET /api/v3/user/`, which answers `200 {"id":null,"display_name":"","is_authenticated":false}`,
   and the photo redirects below, which need no session at all. **AllTrails** → `302` to `/login`
   (so `fetch` ends on a 200 HTML page with `response.redirected === true`). **Strava** answers
-  per endpoint, as the real site does (see below).
+  per endpoint, as the real site does (see below). **Garmin** → `401`, `text/plain`, empty body.
 - Signing in again (`login()`, `POST /login`, the control endpoint) after the session died starts
-  a **new session**: tokens a platform binds to the session (Strava's CSRF token) stop working.
+  a **new session**: tokens a platform binds to the session (Strava's and Garmin's CSRF tokens)
+  stop working.
 
 ## Sentinels
 
@@ -118,9 +123,10 @@ export const SENTINELS = {
 	sessionCookie: {
 		gaiagps: 'SENTINEL-SESSION-gaia-7f3a9c1e5b',
 		alltrails: 'SENTINEL-SESSION-at-2d8e4f6a1c',
-		strava: 'SENTINEL-SESSION-strava-8b4f0d2e6a'
+		strava: 'SENTINEL-SESSION-strava-8b4f0d2e6a',
+		garmin: 'SENTINEL-SESSION-garmin-4c9e1a7b3d'
 	},
-	/** Also the stem of every CSRF token the Strava-shaped site mints. */
+	/** Also the stem of every CSRF token the Strava- and Garmin-shaped sites hand out. */
 	csrfToken: 'SENTINEL-CSRF-91b7c3d5e2f4',
 	/** Signature on the short-lived photo URLs the Gaia-shaped site redirects to. */
 	photoSignature: 'SENTINEL-PHOTO-SIGNATURE-5c1d7e9a',
@@ -147,7 +153,10 @@ Plant them generously. Gaia: e-mail and a secret (`didomi_auth.digest` = the CSR
 e-mail + CSRF token in `/me`; other users in `user` blocks; trail description + geometry on every
 saved trail. Strava: the CSRF sentinel as the account's `external_identity_hash` and inside every
 minted token; the other athlete's name as the author, and platform-trail coordinates as the
-geometry, of their starred route's GPX. A trail's **representative coordinate** (`trailhead` / `location`) is a _different_
+geometry, of their starred route's GPX. Garmin: the e-mail as the profile's `userName`, the CSRF
+sentinel inside every app page's token, the other user's name as their favourite course's
+`displayName`, and platform-trail coordinates as its geometry (its `startLatitude`/`startLongitude`
+are the trailhead). A trail's **representative coordinate** (`trailhead` / `location`) is a _different_
 point that is not in `trailCoordinates` and is allowed in archives.
 
 ## Gaia-shaped API (`gaia.localhost`)
@@ -298,20 +307,57 @@ athlete's, starred), 4 photo items (3 photos: two on GPS activities, one on the 
 so unattached; 1 video, not exported). **Expected collections: 1**, the synthesized "Starred
 routes". Expected `references` = the other athlete's route, with `coordinate: null`.
 
+## Garmin-Connect-shaped API (`garmin.localhost`)
+
+Every `/gc-api/…` request needs the session cookie **and** the session's CSRF token in a
+`connect-csrf-token` header. Signed out → `401`; no token, or a wrong or stale one → `403`; both
+`text/plain` with an empty body. Anything but `GET`/`HEAD` → `405`.
+
+- `GET /app/` (and any `/app/…` or `/modern/…` page) → the app's HTML shell with
+  `<meta name="csrf-token" content="<token>"/>`: `SENTINELS.csrfToken` plus a per-session suffix,
+  the same on every load until the session changes. Signed out → `302 /signin/`, an HTML sign-in
+  form without the meta tag.
+- `GET /gc-api/userprofile-service/socialProfile` → `{ id, profileId, garminGUID, displayName (UUID), fullName, userName (the e-mail), profileImageUrl…, … }`.
+- `GET /gc-api/activitylist-service/activities/count` → `{ totalCount, multisportParentCount, multisportChildCount, nonMultisportCount }`.
+- `GET /gc-api/activitylist-service/activities/search/activities?start=<n>&limit=<n>` → a **bare
+  array**, newest first; `start` is 0-based, `limit` is clamped to `maxPageSize`; past the end →
+  `[]`. Item: `activityId, activityUUID, activityName, description? (only when set), startTimeLocal, startTimeGMT ("YYYY-MM-DD HH:MM:SS", no zone), endTimeGMT, beginTimestamp (epoch ms), activityType: { typeKey, … }, distance (m), duration (timer s), elapsedDuration (wall-clock s), movingDuration, elevationGain, hasPolyline, ownerId, ownerDisplayName, ownerFullName, ownerProfileImageUrl…, userRoles, privacy: { typeKey: public|private|subscribers }, …`.
+  The schema-drift fault wraps the array in `{ count, results }`.
+- `GET /gc-api/download-service/export/gpx/activity/<id>` → `200 application/gpx+xml`, GPX 1.1
+  `creator="Garmin Connect"`, one `trkseg` with `ele` and `time`. An activity without GPS → `200`
+  with a GPX that has no points. `fake.nativeGpx('garmin', 'track', …)` returns these bytes.
+- `GET /gc-api/activity-service/activity/<id>/details?…` → `{ metricDescriptors: [{ metricsIndex, key, unit }], activityDetailMetrics: [{ metrics: [...] }], geoPolylineDTO: { polyline: [{ lat, lon, altitude: null, time }] }, … }`.
+  The descriptors are listed in a different order from their `metricsIndex`. The rows are the GPX
+  points plus three leading rows with null `directLatitude`/`directLongitude` (no fix yet);
+  `directTimestamp` is epoch ms, `directElevation` metres.
+- `GET /gc-api/web-gateway/course/owner/` → `{ coursesForUser: [Course] }`, own courses only,
+  unpaged. Course: `courseId, userProfileId, displayName, courseName, courseDescription, activityType, privacyRule: { typeKey: public|private }, createdDate, updatedDate (epoch ms), distanceInMeters, elevationGainInMeters, startLatitude, startLongitude, favorite, …`.
+  The schema-drift fault renames `coursesForUser`.
+- `GET /gc-api/course-service/course/favorites` → bare array of Courses, own and other people's.
+- `GET /gc-api/course-service/course/gpx/<id>` → `200 application/gpx+xml`: course points as
+  `wpt` (`ele`, `name`, `type`), then one `trk` without times. `fake.nativeGpx('garmin', 'route', …)`.
+- `GET /gc-api/course-service/course/<id>` → `{ courseId, courseName, description, firstName, lastName, displayName, userProfilePk, geoPoints: [{ latitude, longitude, elevation, distance, timestamp }], coursePoints: […], courseLines: […] }`.
+
+Small dataset (Garmin): 5 activities (4 with GPS: public, followers-only and private; 1 indoor
+without GPS, which is not exported), 3 own courses (one with two course points and a
+description), 2 favourites (one own course; one other user's course, drawn over a platform trail).
+**Expected collections: 1**, the synthesized "Favorite courses". Expected `references` = the other
+user's course, with its start as `coordinate`. No photos.
+
 ## Large dataset
 
 `dataset: 'large'` or `{ kind: 'large', photos: 1100, photoBytes: 5_000_000 }`: Gaia platform only,
 2 tracks, 2 waypoints (every photo hangs off one of them), 0 of everything else, `photos` photos
 of `photoBytes` each (≥ 5 GB total by default), generated on the fly without allocating per-photo
 buffers (reuse one pseudo-random block; vary a small per-photo header so files differ). The photo
-listing is one response, like every Gaia listing. AllTrails and Strava are empty (but valid)
-accounts.
+listing is one response, like every Gaia listing. AllTrails, Strava and Garmin are empty (but
+valid) accounts.
 
 ## Faults
 
 ```ts
 interface Fault {
-	platform?: 'gaiagps' | 'alltrails' | 'strava';
+	platform?: 'gaiagps' | 'alltrails' | 'strava' | 'garmin';
 	/** RegExp source tested against `path + search`. */
 	match: string;
 	/** Let this many matching requests through first. Default 0. */

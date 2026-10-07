@@ -1,6 +1,7 @@
 import type { AdapterFactory, SourceId } from '../shared/models';
 import { createAllTrailsAdapter } from './alltrails';
 import { createGaiaAdapter } from './gaia';
+import { createGarminAdapter } from './garmin';
 import { sourceHosts } from './hosts';
 import { createStravaAdapter } from './strava';
 
@@ -30,6 +31,12 @@ export const SOURCES: SourceDescriptor[] = [
 		label: 'Strava',
 		siteHosts: ['strava.com'],
 		create: createStravaAdapter
+	},
+	{
+		id: 'garmin',
+		label: 'Garmin Connect',
+		siteHosts: ['connect.garmin.com'],
+		create: createGarminAdapter
 	}
 ];
 

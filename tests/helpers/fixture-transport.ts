@@ -2,7 +2,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AdapterTransport, CsrfSource } from '../../src/shared/models.ts';
 
-export function loadFixture<T = any>(adapter: 'gaia' | 'alltrails' | 'strava', name: string): T {
+export function loadFixture<T = any>(
+	adapter: 'gaia' | 'alltrails' | 'strava' | 'garmin',
+	name: string
+): T {
 	const path = join(
 		import.meta.dirname,
 		'..',
@@ -31,7 +34,8 @@ export function fixtureTransport(
 	routes: [RegExp, FixtureAnswer][],
 	requested: string[] = [],
 	sentHeaders: (Record<string, string> | undefined)[] = [],
-	posted: PostedRequest[] = []
+	posted: PostedRequest[] = [],
+	sentCsrf: (CsrfSource | undefined)[] = []
 ): AdapterTransport {
 	const answer = (url: string, body?: unknown) => {
 		const route = routes.find(([pattern]) => pattern.test(url));
@@ -41,14 +45,16 @@ export function fixtureTransport(
 		return structuredClone(value);
 	};
 	return {
-		async getJson(url: string, headers?: Record<string, string>) {
+		async getJson(url, options = {}) {
 			requested.push(url);
-			sentHeaders.push(headers);
+			sentHeaders.push(options.headers);
+			sentCsrf.push(options.csrf);
 			return answer(url);
 		},
 		async postJson(url, body, options = {}) {
 			requested.push(url);
 			sentHeaders.push(options.headers);
+			sentCsrf.push(options.csrf);
 			posted.push({ url, body: structuredClone(body), ...options });
 			return answer(url, body);
 		}

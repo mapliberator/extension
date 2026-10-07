@@ -19,6 +19,14 @@ import {
 	handleGaiaCdn,
 	type GaiaData
 } from './gaia.ts';
+import {
+	buildGarmin,
+	garminCsrfToken,
+	handleGarminApi,
+	handleGarminPage,
+	isGarminApiPath,
+	type GarminData
+} from './garmin.ts';
 import { xmlEscape } from './gpx.ts';
 import { streamPhoto } from './photos.ts';
 import type { Reply } from './reply.ts';
@@ -36,6 +44,7 @@ import type {
 	Fault,
 	FakeSource,
 	GaiaObjects,
+	GarminObjects,
 	Lane,
 	Platform,
 	RequestLogEntry,
@@ -49,14 +58,16 @@ const COOKIE_NAME = 'fs_session';
 const SITE_HOST: Record<Platform, SessionCookie['domain']> = {
 	gaiagps: 'gaia.localhost',
 	alltrails: 'alltrails.localhost',
-	strava: 'strava.localhost'
+	strava: 'strava.localhost',
+	garmin: 'garmin.localhost'
 };
 const PLATFORM_LABEL: Record<Platform, string> = {
 	gaiagps: 'Fake Gaia',
 	alltrails: 'Fake AllTrails',
-	strava: 'Fake Strava'
+	strava: 'Fake Strava',
+	garmin: 'Fake Garmin Connect'
 };
-const PLATFORMS: Platform[] = ['gaiagps', 'alltrails', 'strava'];
+const PLATFORMS: Platform[] = ['gaiagps', 'alltrails', 'strava', 'garmin'];
 
 interface LiveEntry extends RequestLogEntry {
 	open: boolean;
@@ -87,6 +98,10 @@ function routeHost(hostHeader: string | undefined): { platform: Platform; cdn: b
 			return { platform: 'strava', cdn: false };
 		case 'cdn.strava.localhost':
 			return { platform: 'strava', cdn: true };
+		case 'garmin.localhost':
+			return { platform: 'garmin', cdn: false };
+		case 'cdn.garmin.localhost':
+			return { platform: 'garmin', cdn: true };
 		default:
 			return null;
 	}
@@ -161,9 +176,19 @@ const CHALLENGE_PAGE = html(
 
 export async function startFakeSource(options: StartOptions = {}): Promise<FakeSource> {
 	const ds: ResolvedDataset = resolveDataset(options.dataset);
-	const sessionActive: Record<Platform, boolean> = { gaiagps: true, alltrails: true, strava: true };
+	const sessionActive: Record<Platform, boolean> = {
+		gaiagps: true,
+		alltrails: true,
+		strava: true,
+		garmin: true
+	};
 	/** Bumped on every sign-in: tokens a platform binds to the session die with it. */
-	const sessionGeneration: Record<Platform, number> = { gaiagps: 1, alltrails: 1, strava: 1 };
+	const sessionGeneration: Record<Platform, number> = {
+		gaiagps: 1,
+		alltrails: 1,
+		strava: 1,
+		garmin: 1
+	};
 	const setSession = (platform: Platform, active: boolean): void => {
 		if (active && !sessionActive[platform]) sessionGeneration[platform]++;
 		sessionActive[platform] = active;
@@ -174,6 +199,7 @@ export async function startFakeSource(options: StartOptions = {}): Promise<FakeS
 	let gaia: GaiaData | null = null;
 	let alltrails: AllTrailsData | null = null;
 	let strava: StravaData | null = null;
+	let garmin: GarminData | null = null;
 	const envs = {} as Record<Platform, Env>;
 
 	const setFaults = (list: Fault[]): void => {
@@ -366,7 +392,7 @@ export async function startFakeSource(options: StartOptions = {}): Promise<FakeS
 				`<h1>${label}</h1><p><a href="/login">Log in</a> to see your maps.</p>`
 			);
 		}
-		if (path === '/login') {
+		if (path === '/login' || (platform === 'garmin' && path === '/signin/')) {
 			return page(
 				200,
 				`Log in — ${label}`,
@@ -384,6 +410,10 @@ export async function startFakeSource(options: StartOptions = {}): Promise<FakeS
 		if (platform === 'alltrails' && trail) {
 			const found = trailBySlug(trail[1]!);
 			if (found) return page(200, found.name, `<h1>${xmlEscape(found.name)}</h1>`);
+		}
+		if (platform === 'garmin') {
+			const reply = handleGarminPage(path, authed, garminCsrfToken(sessionGeneration.garmin));
+			if (reply) return sendReply(res, reply, head, false);
 		}
 		// Where the archive's links point, and where a GPX export without GPS bounces to.
 		const stravaPage = /^\/(dashboard|activities\/\d+|routes\/\d+)$/.exec(path);
@@ -408,7 +438,9 @@ export async function startFakeSource(options: StartOptions = {}): Promise<FakeS
 			const cdnHandlers = {
 				gaiagps: () => handleGaiaCdn(gaia!, url.pathname),
 				alltrails: () => handleAllTrailsCdn(alltrails!, url.pathname),
-				strava: () => handleStravaCdn(strava!, url.pathname)
+				strava: () => handleStravaCdn(strava!, url.pathname),
+				// No photos are exported from it, so its photo host serves nothing.
+				garmin: () => null
 			};
 			const reply = method === 'GET' || head ? cdnHandlers[platform]() : null;
 			if (reply) return sendReply(res, reply, head, false);
@@ -417,6 +449,20 @@ export async function startFakeSource(options: StartOptions = {}): Promise<FakeS
 		const authed =
 			sessionActive[platform] &&
 			readCookie(req.headers.cookie, COOKIE_NAME) === SENTINELS.sessionCookie[platform];
+		if (platform === 'garmin') {
+			if (!url.pathname.startsWith('/gc-api/')) return handlePage(req, res, platform, url, authed);
+			req.resume();
+			const apiReq = { method, path: url.pathname, query: url.searchParams, headers: req.headers };
+			return sendReply(
+				res,
+				handleGarminApi(garmin!, ds, apiReq, {
+					authed,
+					csrfToken: garminCsrfToken(sessionGeneration.garmin)
+				}),
+				head,
+				drift
+			);
+		}
 		if (platform === 'strava') {
 			if (!isStravaApiPath(url.pathname)) return handlePage(req, res, platform, url, authed);
 			// Signed-out answers differ per endpoint, so the handler sees every request.
@@ -509,7 +555,7 @@ export async function startFakeSource(options: StartOptions = {}): Promise<FakeS
 			);
 			return;
 		}
-		if (!gaia || !alltrails || !strava) {
+		if (!gaia || !alltrails || !strava || !garmin) {
 			sendText(res, 503, 'text/plain; charset=utf-8', 'fake-source: starting\n', false);
 			return;
 		}
@@ -520,7 +566,11 @@ export async function startFakeSource(options: StartOptions = {}): Promise<FakeS
 			/^\/api\/objects\/photo\/[^/]+\/image\//.test(url.pathname) ||
 			/^\/api\/alltrails\/(v3\/)?photos\/\d+\/image$/.test(url.pathname);
 		const api =
-			platform === 'strava' ? isStravaApiPath(url.pathname) : url.pathname.startsWith('/api/');
+			platform === 'strava'
+				? isStravaApiPath(url.pathname)
+				: platform === 'garmin'
+					? isGarminApiPath(url.pathname)
+					: url.pathname.startsWith('/api/');
 		const lane: Lane = cdn || photoRedirect ? 'asset' : api ? 'api' : 'page';
 		const start = performance.now();
 		const entry: LiveEntry = {
@@ -637,16 +687,21 @@ export async function startFakeSource(options: StartOptions = {}): Promise<FakeS
 	gaia = buildGaia(envs.gaiagps, ds);
 	alltrails = buildAllTrails(envs.alltrails, ds);
 	strava = buildStrava(envs.strava, ds);
+	garmin = buildGarmin(envs.garmin, ds);
 	const gaiaData = gaia;
 	const atData = alltrails;
 	const stravaData = strava;
+	const garminData = garmin;
 
+	type AnyObjects = GaiaObjects | AllTrailsObjects | StravaObjects | GarminObjects;
 	function objects(platform: 'gaiagps'): GaiaObjects;
 	function objects(platform: 'alltrails'): AllTrailsObjects;
 	function objects(platform: 'strava'): StravaObjects;
-	function objects(platform: Platform): GaiaObjects | AllTrailsObjects | StravaObjects;
-	function objects(platform: Platform): GaiaObjects | AllTrailsObjects | StravaObjects {
+	function objects(platform: 'garmin'): GarminObjects;
+	function objects(platform: Platform): AnyObjects;
+	function objects(platform: Platform): AnyObjects {
 		if (platform === 'gaiagps') return gaiaData.objects();
+		if (platform === 'garmin') return garminData.objects();
 		return platform === 'alltrails' ? atData.objects() : stravaData.objects();
 	}
 
@@ -672,7 +727,9 @@ export async function startFakeSource(options: StartOptions = {}): Promise<FakeS
 		log: snapshotLog,
 		stats: (platform) => computeStats(entries, platform),
 		expected: (platform) =>
-			({ gaiagps: gaiaData, alltrails: atData, strava: stravaData })[platform].expected(),
+			({ gaiagps: gaiaData, alltrails: atData, strava: stravaData, garmin: garminData })[
+				platform
+			].expected(),
 		nativeGpx: (platform, kind, id) => {
 			// AllTrails has no GPX export to serve.
 			const lines: { id: string; gpx: Buffer | null }[] =
@@ -684,7 +741,11 @@ export async function startFakeSource(options: StartOptions = {}): Promise<FakeS
 						? kind === 'track'
 							? stravaData.activities
 							: stravaData.routes
-						: [];
+						: platform === 'garmin'
+							? kind === 'track'
+								? garminData.activities
+								: garminData.courses
+							: [];
 			const gpx = lines.find((l) => l.id === String(id))?.gpx;
 			if (!gpx) throw new Error(`fake-source: no ${platform} ${kind} with id ${String(id)}`);
 			return gpx;

@@ -9,6 +9,8 @@ export interface BridgeResponse {
 	/** 'stream' when the body was delivered through onChunk. */
 	bodyKind: BodyKind | 'stream';
 	json?: unknown;
+	/** Body of a `text` request. */
+	text?: string;
 }
 
 /** The source tab closed, navigated, was discarded or reloaded. Recoverable. */

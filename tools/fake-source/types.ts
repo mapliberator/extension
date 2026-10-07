@@ -1,6 +1,6 @@
 /** Public types of `tools/fake-source`. See API.md — that document is the contract. */
 
-export type Platform = 'gaiagps' | 'alltrails' | 'strava';
+export type Platform = 'gaiagps' | 'alltrails' | 'strava' | 'garmin';
 
 export type Lane = 'api' | 'asset' | 'page';
 
@@ -96,7 +96,7 @@ export interface SourceStats {
 export interface SessionCookie {
 	name: 'fs_session';
 	value: string;
-	domain: 'gaia.localhost' | 'alltrails.localhost' | 'strava.localhost';
+	domain: 'gaia.localhost' | 'alltrails.localhost' | 'strava.localhost' | 'garmin.localhost';
 	path: '/';
 	httpOnly: true;
 	secure: false;
@@ -140,6 +140,17 @@ export interface StravaObjects {
 	photos: Json[];
 }
 
+export interface GarminObjects {
+	/** The social profile. */
+	me: Json;
+	/** Listing entry plus the details (metric rows) the JSON fallback reads. */
+	activities: { summary: Json; details: Json }[];
+	/** The account's own courses: listing entry plus detail. */
+	courses: LineObject[];
+	/** The favourites listing, other people's courses included. */
+	favorites: Json[];
+}
+
 export interface FakeSource {
 	/** The port actually bound. */
 	readonly port: number;
@@ -161,6 +172,7 @@ export interface FakeSource {
 	objects(platform: 'gaiagps'): GaiaObjects;
 	objects(platform: 'alltrails'): AllTrailsObjects;
 	objects(platform: 'strava'): StravaObjects;
-	objects(platform: Platform): GaiaObjects | AllTrailsObjects | StravaObjects;
+	objects(platform: 'garmin'): GarminObjects;
+	objects(platform: Platform): GaiaObjects | AllTrailsObjects | StravaObjects | GarminObjects;
 	close(): Promise<void>;
 }
